@@ -42,7 +42,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run scraper
-        run: python senamhi_por_hora.py
+        run: python PC1/senamhi_por_hora.py
 
       # Sube el CSV como artefacto (backup)
       - name: Upload artifact

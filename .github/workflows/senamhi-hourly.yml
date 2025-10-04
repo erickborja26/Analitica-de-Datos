@@ -1,0 +1,60 @@
+name: SENAMHI hourly scrape
+
+on:
+  schedule:
+    # Corre cada hora al minuto 5 (cron usa UTC)
+    - cron: '5 * * * *'
+  workflow_dispatch: {}   # para ejecutarlo manualmente cuando quieras
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # para poder commitear el CSV al repo
+    concurrency:
+      group: senamhi-hourly
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set timezone to Lima
+        run: sudo timedatectl set-timezone America/Lima
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Instala Google Chrome estable (más fácil que apt)
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Show Chrome version
+        run: google-chrome --version
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run scraper
+        run: python senamhi_por_hora.py
+
+      # Sube el CSV como artefacto (backup)
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: senamhi-hourly-csv
+          path: senamhi_detalle_hourly.csv
+          if-no-files-found: warn
+
+      # Commits automáticos del CSV al repo
+      - name: Commit & push CSV
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update hourly SENAMHI data [skip ci]"
+          file_pattern: senamhi_detalle_hourly.csv

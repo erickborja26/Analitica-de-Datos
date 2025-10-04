@@ -2,7 +2,7 @@ name: SENAMHI hourly scrape
 
 on:
   schedule:
-    - cron: '5 * * * *'   # cada hora al minuto 5 (UTC)
+    - cron: '20 * * * *'   # cada hora al minuto 5 (UTC)
   workflow_dispatch: {}
 
 jobs:

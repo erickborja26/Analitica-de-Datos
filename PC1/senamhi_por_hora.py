@@ -10,9 +10,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
+from pathlib import Path
 
 URL = "https://www.senamhi.gob.pe/?p=calidad-del-aire"
-OUT_CSV = "senamhi_detalle_hourly.csv"
+BASE_DIR = Path(__file__).resolve().parent   # apunta a .../PC1
+OUT_CSV = str(BASE_DIR / "senamhi_detalle.csv")
 SCHEMA = ["Estacion","Fecha","Hora","PM 2,5","PM 10","SO2","NO2","O3","CO"]
 
 def new_driver(headless=True):

@@ -2,7 +2,7 @@ name: SENAMHI hourly scrape
 
 on:
   schedule:
-    - cron: '20 * * * *'   # cada hora al minuto 5 (UTC)
+    - cron: '20 * * * *'   # cada hora al minuto 20 (UTC)
   workflow_dispatch: {}
 
 jobs:
@@ -42,15 +42,22 @@ jobs:
       - name: Run scraper
         run: python PC1/senamhi_por_hora.py
 
-      - name: Upload artifact CSV
+      - name: Clean CSV
+        run: python PC1/limpiar_detalle.py
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: senamhi-hourly-csv
-          path: PC1/senamhi_detalle.csv
+          name: senamhi-csvs
+          path: |
+            PC1/senamhi_detalle.csv
+            PC1/senamhi_detalle_limpio.csv
           if-no-files-found: warn
 
-      - name: Commit & push CSV
+      - name: Commit & push CSVs
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Update SENAMHI data [skip ci]"
-          file_pattern: PC1/senamhi_detalle.csv
+          commit_message: "Update SENAMHI raw+clean [skip ci]"
+          file_pattern: |
+            PC1/senamhi_detalle.csv
+            PC1/senamhi_detalle_limpio.csv

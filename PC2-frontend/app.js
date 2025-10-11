@@ -28,8 +28,18 @@ function normalizeBaseUrl(value) {
 const state = {
   baseUrl: normalizeBaseUrl(detectDefaultBaseUrl()),
   apiKey: localStorage.getItem('pc2-api-key') || '',
-  history: []
+  history: [],
+  stationIds: null
 };
+
+const POLLUTANTS = [
+  { key: 'pm25', label: 'PM 2.5' },
+  { key: 'pm10', label: 'PM 10' },
+  { key: 'so2', label: 'SO₂' },
+  { key: 'no2', label: 'NO₂' },
+  { key: 'o3', label: 'O₃' },
+  { key: 'co', label: 'CO' }
+];
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -416,6 +426,243 @@ function parseCsvStrings(value) {
     .filter(Boolean);
 }
 
+async function fetchAllStationIds() {
+  if (Array.isArray(state.stationIds) && state.stationIds.length) {
+    return state.stationIds;
+  }
+  const collected = new Set();
+  const limit = 200;
+  let offset = 0;
+  let keepGoing = true;
+
+  while (keepGoing) {
+    const page = await apiRequest('v1/stations', {
+      params: { limit, offset },
+      logHistory: offset === 0
+    });
+    const items = page?.items || [];
+    if (!items.length) {
+      break;
+    }
+    items.forEach((item) => {
+      const raw = item?.id ?? item?.station_id ?? item?.ID;
+      const id = Number(raw);
+      if (Number.isInteger(id) && id > 0) {
+        collected.add(id);
+      }
+    });
+    offset += items.length;
+    const total = typeof page?.total === 'number' ? page.total : null;
+    if (items.length < limit || (total !== null && offset >= total)) {
+      keepGoing = false;
+    }
+  }
+
+  state.stationIds = Array.from(collected).sort((a, b) => a - b);
+  return state.stationIds;
+}
+
+function computeHourlyHeatmap(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return null;
+  }
+  const accumulator = {};
+  const uniqueBuckets = new Set();
+  POLLUTANTS.forEach((pollutant) => {
+    accumulator[pollutant.key] = {
+      sums: Array(24).fill(0),
+      counts: Array(24).fill(0)
+    };
+  });
+
+  items.forEach((item) => {
+    if (!item?.ts) return;
+    const date = new Date(item.ts);
+    if (Number.isNaN(date.getTime())) return;
+    const hour = date.getHours();
+    uniqueBuckets.add(item.ts.slice(0, 13));
+    POLLUTANTS.forEach((pollutant) => {
+      const raw = item[pollutant.key];
+      if (raw === null || raw === undefined) return;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) return;
+      accumulator[pollutant.key].sums[hour] += value;
+      accumulator[pollutant.key].counts[hour] += 1;
+    });
+  });
+
+  let min = Infinity;
+  let max = -Infinity;
+  const rows = POLLUTANTS.map((pollutant) => {
+    const { sums, counts } = accumulator[pollutant.key];
+    const values = sums.map((sum, hour) => {
+      const count = counts[hour];
+      if (!count) return null;
+      const avg = sum / count;
+      if (avg < min) min = avg;
+      if (avg > max) max = avg;
+      return avg;
+    });
+    return { key: pollutant.key, label: pollutant.label, values };
+  });
+
+  if (min === Infinity || max === -Infinity) {
+    return null;
+  }
+
+  return {
+    hours: Array.from({ length: 24 }, (_, h) => h),
+    rows,
+    scale: { min, max },
+    totals: {
+      items: items.length,
+      hourBuckets: uniqueBuckets.size
+    }
+  };
+}
+
+function heatmapColor(value, min, max) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 'rgba(148, 163, 184, 0.18)';
+  }
+  if (max <= min) {
+    return 'hsl(190, 70%, 70%)';
+  }
+  const ratio = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const hue = 190 - ratio * 150; // de azul verdoso a naranja
+  const lightness = 82 - ratio * 40;
+  return `hsl(${hue}, 70%, ${lightness}%)`;
+}
+
+function heatmapTextColor(value, min, max) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 'var(--muted)';
+  }
+  if (max <= min) {
+    return '#0f172a';
+  }
+  const ratio = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  return ratio > 0.6 ? '#f8fafc' : '#0f172a';
+}
+
+function renderHeatmap(matrix, container) {
+  if (!container) return;
+  container.innerHTML = '';
+  const { hours, rows, scale } = matrix;
+
+  const table = document.createElement('table');
+  table.className = 'heatmap-table';
+
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  const labelHeader = document.createElement('th');
+  labelHeader.textContent = 'Contaminante';
+  headRow.appendChild(labelHeader);
+  hours.forEach((hour) => {
+    const th = document.createElement('th');
+    th.textContent = hour.toString().padStart(2, '0');
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  rows.forEach((row) => {
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.className = 'heatmap-label';
+    th.scope = 'row';
+    th.textContent = row.label;
+    tr.appendChild(th);
+
+    row.values.forEach((value, index) => {
+      const td = document.createElement('td');
+      td.className = 'heatmap-cell';
+      if (value === null) {
+        td.textContent = '—';
+        td.style.background = 'rgba(148, 163, 184, 0.18)';
+        td.style.color = 'var(--muted)';
+      } else {
+        td.textContent = Math.round(value).toString();
+        const bg = heatmapColor(value, scale.min, scale.max);
+        td.style.background = bg;
+        td.style.color = heatmapTextColor(value, scale.min, scale.max);
+        td.title = `${row.label} • ${hours[index]}h → ${value.toFixed(2)}`;
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  container.appendChild(table);
+
+  const legend = document.createElement('div');
+  legend.className = 'heatmap-legend';
+  const minSwatch = document.createElement('span');
+  minSwatch.innerHTML = `<i style="background:${heatmapColor(scale.min, scale.min, scale.max)}"></i>Min ${scale.min.toFixed(2)}`;
+  const maxSwatch = document.createElement('span');
+  maxSwatch.innerHTML = `<i style="background:${heatmapColor(scale.max, scale.min, scale.max)}"></i>Max ${scale.max.toFixed(2)}`;
+  legend.append(minSwatch, maxSwatch);
+  container.appendChild(legend);
+}
+
+async function loadHourlyHeatmap() {
+  const container = document.getElementById('heatmap-container');
+  const messageEl = document.getElementById('heatmap-message');
+  if (!container || !messageEl) return;
+
+  container.setAttribute('aria-busy', 'true');
+  container.innerHTML = '<p class="heatmap-placeholder">Consultando datos…</p>';
+  messageEl.textContent = 'Obteniendo estaciones y agregados horarios…';
+
+  try {
+    const stationIds = await fetchAllStationIds();
+    if (!stationIds.length) {
+      messageEl.textContent = 'No se encontraron estaciones registradas.';
+      container.innerHTML = '<p class="heatmap-placeholder">Sin estaciones disponibles.</p>';
+      return;
+    }
+
+    const params = { station_id: stationIds };
+    const start = toISO(document.getElementById('heatmap-start')?.value);
+    const end = toISO(document.getElementById('heatmap-end')?.value);
+    const tz = document.getElementById('heatmap-tz')?.value?.trim();
+    if (start) params.start = start;
+    if (end) params.end = end;
+    if (tz) params.tz = tz;
+
+    const data = await apiRequest('v1/aggregates/hourly', {
+      params,
+      logHistory: true
+    });
+
+    const items = data?.items || [];
+    if (!items.length) {
+      messageEl.textContent = 'La API no devolvió datos para el rango indicado.';
+      container.innerHTML = '<p class="heatmap-placeholder">Sin datos para mostrar.</p>';
+      return;
+    }
+
+    const matrix = computeHourlyHeatmap(items);
+    if (!matrix) {
+      messageEl.textContent = 'No se pudo construir el mapa de calor con la respuesta recibida.';
+      container.innerHTML = '<p class="heatmap-placeholder">Sin datos válidos.</p>';
+      return;
+    }
+
+    renderHeatmap(matrix, container);
+    const hours = matrix.totals.hourBuckets;
+    const hourText = hours === 1 ? '1 hora agregada' : `${hours} horas agregadas`;
+    const stationText = stationIds.length === 1 ? '1 estación' : `${stationIds.length} estaciones`;
+    messageEl.textContent = `Promedios calculados con ${hourText} provenientes de ${stationText}.`;
+  } catch (error) {
+    messageEl.textContent = error.message || String(error);
+    container.innerHTML = '<p class="heatmap-placeholder">Ocurrió un error al consultar la API.</p>';
+  } finally {
+    container.setAttribute('aria-busy', 'false');
+  }
+}
+
 function gatherMeasurementParams() {
   const tz = $('#measurement-tz')?.value.trim();
   return {
@@ -507,6 +754,9 @@ function registerActions() {
       const params = { ...gatherMeasurementParams(), station_name: names.join(',') };
       apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
         .then((data) => showResult($('#measurements-result'), data));
+    },
+    'heatmap-load': () => {
+      loadHourlyHeatmap();
     },
     'alert-rules': () => apiRequest('v1/alerts/rules', { resultEl: $('#alerts-result') })
       .then((data) => showResult($('#alerts-result'), data)),

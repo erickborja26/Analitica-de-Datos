@@ -111,6 +111,21 @@
     </section>
 
     <section>
+      <h2>Mapa de calor horario (todas las estaciones)</h2>
+      <p class="section-hint">Calcula el promedio por hora del día de cada contaminante promediando todas las estaciones seleccionadas.</p>
+      <div class="form-row heatmap-controls">
+        <input type="datetime-local" id="heatmap-start" placeholder="Inicio (opcional)" />
+        <input type="datetime-local" id="heatmap-end" placeholder="Fin (opcional)" />
+        <input type="text" id="heatmap-tz" placeholder="Zona horaria (America/Lima)" />
+        <button data-action="heatmap-load">Generar mapa</button>
+      </div>
+      <p id="heatmap-message" class="heatmap-message">Consulta el rango deseado y haz clic en «Generar mapa».</p>
+      <div id="heatmap-container" class="heatmap-wrapper" aria-live="polite" aria-busy="false">
+        <p class="heatmap-placeholder">Aún no hay datos para mostrar.</p>
+      </div>
+    </section>
+
+    <section>
       <h2>Agregados</h2>
       <form id="aggregates-form" class="form-grid">
         <label>

@@ -165,6 +165,12 @@ body {
   width: fit-content;
 }
 
+.status.success {
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.18);
+}
+
 .status.warn {
   color: #fbbf24;
   border-color: rgba(251, 191, 36, 0.45);

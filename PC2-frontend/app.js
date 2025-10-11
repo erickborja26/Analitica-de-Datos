@@ -1,5 +1,32 @@
+function detectDefaultBaseUrl() {
+  const stored = localStorage.getItem('pc2-base-url');
+  if (stored) return stored;
+  try {
+    const { protocol, hostname, port } = window.location;
+    if (protocol.startsWith('http')) {
+      if (!port || port === '80' || port === '443') {
+        return `${protocol}//${hostname || 'localhost'}:5000`;
+      }
+      if (port === '5000') {
+        return `${protocol}//${hostname}:5000`;
+      }
+      return `${protocol}//${hostname}:5000`;
+    }
+  } catch (error) {
+    console.warn('No se pudo detectar origen actual, usando localhost:5000', error);
+  }
+  return 'http://localhost:5000';
+}
+
+function normalizeBaseUrl(value) {
+  if (!value) return '';
+  const trimmed = String(value).trim();
+  if (!trimmed) return '';
+  return trimmed.replace(/\/$/, '');
+}
+
 const state = {
-  baseUrl: localStorage.getItem('pc2-base-url') || 'http://localhost:5000',
+  baseUrl: normalizeBaseUrl(detectDefaultBaseUrl()),
   apiKey: localStorage.getItem('pc2-api-key') || '',
   history: []
 };
@@ -140,7 +167,7 @@ function generateCurl(entry) {
   return parts.join(' ');
 }
 
-async function apiRequest(path, { method = 'GET', params, body, resultEl, expectJson = true, raw = false } = {}) {
+async function apiRequest(path, { method = 'GET', params, body, resultEl, expectJson = true, raw = false, logHistory = true } = {}) {
   if (resultEl) {
     showLoading(resultEl);
   }
@@ -165,103 +192,115 @@ async function apiRequest(path, { method = 'GET', params, body, resultEl, expect
     const duration = performance.now() - startedAt;
     if (!res.ok) {
       const errorMessage = `${res.status} ${res.statusText}\n${responseText}`.trim();
-      pushHistory({
-        method,
-        url: url.toString(),
-        status: res.status,
-        statusText: `${res.status} ${res.statusText}`,
-        duration,
-        preview: truncatePreview(responseText),
-        headers,
-        body: payload,
-        error: true,
-        timestamp: new Date().toISOString()
-      });
+      if (logHistory) {
+        pushHistory({
+          method,
+          url: url.toString(),
+          status: res.status,
+          statusText: `${res.status} ${res.statusText}`,
+          duration,
+          preview: truncatePreview(responseText),
+          headers,
+          body: payload,
+          error: true,
+          timestamp: new Date().toISOString()
+        });
+      }
       const err = new Error(errorMessage);
       err.__historyLogged = true;
       throw err;
     }
     if (raw) {
-      pushHistory({
-        method,
-        url: url.toString(),
-        status: res.status,
-        statusText: `${res.status} ${res.statusText}`,
-        duration,
-        preview: truncatePreview(responseText),
-        headers,
-        body: payload,
-        error: false,
-        timestamp: new Date().toISOString()
-      });
-      return { res, text };
+      if (logHistory) {
+        pushHistory({
+          method,
+          url: url.toString(),
+          status: res.status,
+          statusText: `${res.status} ${res.statusText}`,
+          duration,
+          preview: truncatePreview(responseText),
+          headers,
+          body: payload,
+          error: false,
+          timestamp: new Date().toISOString()
+        });
+      }
+      return { res, text: responseText };
     }
     if (!responseText) {
-      pushHistory({
-        method,
-        url: url.toString(),
-        status: res.status,
-        statusText: `${res.status} ${res.statusText}`,
-        duration,
-        preview: 'Sin contenido',
-        headers,
-        body: payload,
-        error: false,
-        timestamp: new Date().toISOString()
-      });
+      if (logHistory) {
+        pushHistory({
+          method,
+          url: url.toString(),
+          status: res.status,
+          statusText: `${res.status} ${res.statusText}`,
+          duration,
+          preview: 'Sin contenido',
+          headers,
+          body: payload,
+          error: false,
+          timestamp: new Date().toISOString()
+        });
+      }
       return null;
     }
     if (!expectJson) {
-      pushHistory({
-        method,
-        url: url.toString(),
-        status: res.status,
-        statusText: `${res.status} ${res.statusText}`,
-        duration,
-        preview: truncatePreview(responseText),
-        headers,
-        body: payload,
-        error: false,
-        timestamp: new Date().toISOString()
-      });
+      if (logHistory) {
+        pushHistory({
+          method,
+          url: url.toString(),
+          status: res.status,
+          statusText: `${res.status} ${res.statusText}`,
+          duration,
+          preview: truncatePreview(responseText),
+          headers,
+          body: payload,
+          error: false,
+          timestamp: new Date().toISOString()
+        });
+      }
       return responseText;
     }
     try {
       const json = JSON.parse(responseText);
-      pushHistory({
-        method,
-        url: url.toString(),
-        status: res.status,
-        statusText: `${res.status} ${res.statusText}`,
-        duration,
-        preview: truncatePreview(JSON.stringify(json, null, 2)),
-        headers,
-        body: payload,
-        error: false,
-        timestamp: new Date().toISOString()
-      });
+      if (logHistory) {
+        pushHistory({
+          method,
+          url: url.toString(),
+          status: res.status,
+          statusText: `${res.status} ${res.statusText}`,
+          duration,
+          preview: truncatePreview(JSON.stringify(json, null, 2)),
+          headers,
+          body: payload,
+          error: false,
+          timestamp: new Date().toISOString()
+        });
+      }
       return json;
     } catch (err) {
       console.warn('Respuesta no JSON', err);
-      pushHistory({
-        method,
-        url: url.toString(),
-        status: res.status,
-        statusText: `${res.status} ${res.statusText}`,
-        duration,
-        preview: truncatePreview(responseText),
-        headers,
-        body: payload,
-        error: false,
-        timestamp: new Date().toISOString()
-      });
+      if (logHistory) {
+        pushHistory({
+          method,
+          url: url.toString(),
+          status: res.status,
+          statusText: `${res.status} ${res.statusText}`,
+          duration,
+          preview: truncatePreview(responseText),
+          headers,
+          body: payload,
+          error: false,
+          timestamp: new Date().toISOString()
+        });
+      }
       return responseText;
     }
   } catch (error) {
     if (resultEl) {
       showResult(resultEl, error.message || String(error));
     }
-    if (!error.__historyLogged) {
+    if (!error.__historyLogged && logHistory) {
       pushHistory({
         method,
         url: url.toString(),
@@ -279,19 +318,39 @@ async function apiRequest(path, { method = 'GET', params, body, resultEl, expect
   }
 }
 
+async function testConnection() {
+  if (!state.baseUrl) return;
+  setStatus(`Verificando API en ${state.baseUrl}…`);
+  try {
+    const health = await apiRequest('v1/health', { logHistory: false });
+    if (health) {
+      let suffix = '';
+      if (typeof health === 'object' && health !== null && 'status' in health) {
+        suffix = ` • ${health.status}`;
+      }
+      setStatus(`Conectado a ${state.baseUrl}${suffix}`, 'success');
+    } else {
+      setStatus(`La API respondió sin contenido desde ${state.baseUrl}`, 'warn');
+    }
+  } catch (error) {
+    setStatus(`No se pudo contactar la API (${error.message || error}).`, 'error');
+  }
+}
+
 function initConfigForm() {
   const baseInput = $('#base-url');
   const apiInput = $('#api-key');
-  baseInput.value = state.baseUrl;
+  baseInput.value = state.baseUrl || 'http://localhost:5000';
   apiInput.value = state.apiKey;
 
   $('#config-form').addEventListener('submit', (ev) => {
     ev.preventDefault();
-    state.baseUrl = baseInput.value.replace(/\/$/, '');
+    state.baseUrl = normalizeBaseUrl(baseInput.value);
     state.apiKey = apiInput.value.trim();
     localStorage.setItem('pc2-base-url', state.baseUrl);
     localStorage.setItem('pc2-api-key', state.apiKey);
-    setStatus(`Configuración actualizada: ${state.baseUrl}`);
+    setStatus(`Configuración actualizada: ${state.baseUrl || '—'}`);
+    testConnection();
   });
 }
 
@@ -563,5 +622,5 @@ window.addEventListener('DOMContentLoaded', () => {
   registerActions();
   registerForms();
   initHistoryControls();
-  setStatus('Listo para enviar solicitudes.');
+  testConnection();
 });

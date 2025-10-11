@@ -80,6 +80,234 @@ function showResult(el, data) {
   }
 }
 
+function examplePlaceholder(text) {
+  return `<p class="example-placeholder">${escapeHtml(text)}</p>`;
+}
+
+function setExample(id, html) {
+  const container = document.getElementById(id);
+  if (!container) return;
+  if (!html) {
+    container.innerHTML = examplePlaceholder('Sin vista previa disponible.');
+    return;
+  }
+  container.innerHTML = html;
+}
+
+function formatLocalDateTime(value) {
+  if (!value) return '—';
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+  } catch (error) {
+    return value;
+  }
+}
+
+function renderHealthExample(data) {
+  if (!data || typeof data !== 'object') {
+    setExample('health-example', examplePlaceholder('Sin datos de estado.'));
+    return;
+  }
+  const status = String(data.status || data.state || data.message || 'desconocido').toLowerCase();
+  let indicatorClass = 'warn';
+  if (status.includes('ok') || status.includes('up')) indicatorClass = 'ok';
+  if (status.includes('fail') || status.includes('down') || status.includes('error')) indicatorClass = 'error';
+  const timestamp = data.timestamp || data.time || data.checked_at;
+  const extras = Object.entries(data)
+    .filter(([key]) => !['status', 'state', 'message', 'timestamp', 'time', 'checked_at'].includes(key))
+    .slice(0, 4)
+    .map(([key, value]) => `<span class="chip">${escapeHtml(`${key}: ${value}`)}</span>`)
+    .join('');
+
+  setExample('health-example', `
+    <div class="example-title">Estado actualizado</div>
+    <div class="health-glance">
+      <span class="health-indicator ${indicatorClass}" aria-hidden="true"></span>
+      <div class="health-meta">
+        <strong>${escapeHtml(data.status || data.state || 'Sin estado')}</strong>
+        <span>Última respuesta: ${escapeHtml(formatLocalDateTime(timestamp))}</span>
+      </div>
+    </div>
+    ${extras ? `<div class="chip-list">${extras}</div>` : ''}
+  `);
+}
+
+function renderStationsExample(data) {
+  const items = Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data)
+      ? data
+      : data && typeof data === 'object'
+        ? [data]
+        : [];
+
+  if (!items.length) {
+    setExample('stations-example', examplePlaceholder('No se encontraron estaciones con los filtros actuales.'));
+    return;
+  }
+
+  const total = typeof data?.total === 'number' ? data.total : items.length;
+  const cards = items.slice(0, 4).map((station) => {
+    const id = station?.id ?? station?.station_id ?? '—';
+    const name = station?.name || station?.station_name || `Estación ${id}`;
+    const locationParts = ['district', 'province', 'department', 'city', 'region']
+      .map((key) => station?.[key])
+      .filter(Boolean);
+    const location = locationParts.join(' • ');
+    const lat = station?.latitude ?? station?.lat ?? station?.latitud ?? station?.location?.lat ?? station?.location?.latitude;
+    const lon = station?.longitude ?? station?.lon ?? station?.longitud ?? station?.location?.lon ?? station?.location?.longitude;
+    let coords = '';
+    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
+      coords = `${Number(lat).toFixed(4)}, ${Number(lon).toFixed(4)}`;
+    }
+    const type = station?.station_type || station?.type;
+    return `
+      <article class="station-card">
+        <h3>${escapeHtml(name)}</h3>
+        <div class="station-meta">
+          <span>ID: ${escapeHtml(String(id))}${type ? ` • ${escapeHtml(String(type))}` : ''}</span>
+          ${location ? `<span>${escapeHtml(location)}</span>` : ''}
+          ${coords ? `<span class="station-coords">${escapeHtml(coords)}</span>` : ''}
+        </div>
+      </article>
+    `;
+  }).join('');
+
+  setExample('stations-example', `
+    <div class="example-title">Vista rápida (${Math.min(items.length, 4)} mostradas de ${total})</div>
+    <div class="station-grid">${cards}</div>
+  `);
+}
+
+function renderMeasurementsExample(data) {
+  const items = Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data)
+      ? data
+      : data && typeof data === 'object'
+        ? [data]
+        : [];
+
+  if (!items.length) {
+    setExample('measurements-example', examplePlaceholder('Sin mediciones para graficar. Ajusta el rango de fechas.'));
+    return;
+  }
+
+  const timelineItems = items
+    .filter((item) => item && typeof item === 'object')
+    .slice(0, 5)
+    .map((item) => {
+      const station = item.station_name || item.station || `Estación ${item.station_id ?? '—'}`;
+      const ts = item.ts || item.timestamp || item.time || item.date;
+      const pollutantBadges = POLLUTANTS.map((pollutant) => {
+        const raw = item[pollutant.key];
+        if (raw === undefined || raw === null) return null;
+        const value = Number(raw);
+        const label = Number.isFinite(value) ? value.toFixed(1) : raw;
+        return `<span class="timeline-value">${escapeHtml(pollutant.label)}: ${escapeHtml(String(label))}</span>`;
+      }).filter(Boolean);
+
+      if (!pollutantBadges.length) {
+        pollutantBadges.push('<span class="timeline-value">Sin valores reportados</span>');
+      }
+
+      return `
+        <li class="timeline-item">
+          <p class="timeline-title">${escapeHtml(station)}</p>
+          <p class="timeline-meta">${escapeHtml(formatLocalDateTime(ts))}</p>
+          <div class="timeline-values">${pollutantBadges.join('')}</div>
+        </li>
+      `;
+    }).join('');
+
+  setExample('measurements-example', `
+    <div class="example-title">Últimas mediciones (${Math.min(items.length, 5)} mostradas)</div>
+    <ol class="timeline">${timelineItems}</ol>
+  `);
+}
+
+function renderAggregatesExample(data) {
+  const items = Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data)
+      ? data
+      : data && typeof data === 'object'
+        ? [data]
+        : [];
+
+  if (!items.length) {
+    setExample('aggregates-example', examplePlaceholder('Sin datos agregados para mostrar.')); 
+    return;
+  }
+
+  const sample = items.slice(0, 4);
+  const columns = Array.from(new Set(sample.flatMap((item) => Object.keys(item || {}))))
+    .filter((key) => !['station_id', 'station_name'].includes(key) || sample.some((row) => row[key] !== undefined))
+    .slice(0, 6);
+
+  const header = columns.map((col) => `<th>${escapeHtml(col)}</th>`).join('');
+  const rows = sample.map((row) => {
+    const cells = columns.map((col) => {
+      const value = row?.[col];
+      if (col === 'ts' || col === 'timestamp' || col === 'date') {
+        return `<td>${escapeHtml(formatLocalDateTime(value))}</td>`;
+      }
+      if (Number.isFinite(Number(value)) && value !== null && value !== '') {
+        return `<td>${escapeHtml(Number(value).toFixed(2))}</td>`;
+      }
+      return `<td>${escapeHtml(value ?? '—')}</td>`;
+    }).join('');
+    return `<tr>${cells}</tr>`;
+  }).join('');
+
+  setExample('aggregates-example', `
+    <div class="example-title">Muestra de agregados (${sample.length} filas)</div>
+    <div class="example-scroll">
+      <table class="aggregates-table">
+        <thead><tr>${header}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+function renderAlertsExample(data) {
+  const items = Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data)
+      ? data
+      : data && typeof data === 'object'
+        ? [data]
+        : [];
+
+  if (!items.length) {
+    setExample('alerts-example', examplePlaceholder('No hay reglas o eventos para mostrar.'));
+    return;
+  }
+
+  const list = items.slice(0, 5).map((item) => {
+    const name = item.name || item.rule_name || `Regla ${item.id ?? item.rule_id ?? '—'}`;
+    const pollutant = item.pollutant || item.metric;
+    const threshold = item.threshold ?? item.value ?? item.level;
+    const ts = item.triggered_at || item.created_at || item.updated_at || item.timestamp;
+    return `
+      <div class="alert-item">
+        <strong>${escapeHtml(name)}</strong>
+        ${pollutant ? `<span>Contaminante: ${escapeHtml(String(pollutant))}</span>` : ''}
+        ${threshold !== undefined ? `<span>Umbral: ${escapeHtml(String(threshold))}</span>` : ''}
+        ${ts ? `<small>${escapeHtml(formatLocalDateTime(ts))}</small>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  setExample('alerts-example', `
+    <div class="example-title">Ejemplos (${Math.min(items.length, 5)} mostrados)</div>
+    <div class="alerts-list">${list}</div>
+  `);
+}
+
 function buildUrl(path, params = {}) {
   const url = new URL(path, state.baseUrl.endsWith('/') ? state.baseUrl : state.baseUrl + '/');
   Object.entries(params).forEach(([key, value]) => {
@@ -678,8 +906,14 @@ function gatherMeasurementParams() {
 
 function registerActions() {
   const actions = {
-    health: () => apiRequest('v1/health', { resultEl: $('#health-result') }).then((data) => showResult($('#health-result'), data)),
-    stations: () => apiRequest('v1/stations', { resultEl: $('#stations-result') }).then((data) => showResult($('#stations-result'), data)),
+    health: () => apiRequest('v1/health', { resultEl: $('#health-result') }).then((data) => {
+      showResult($('#health-result'), data);
+      renderHealthExample(data);
+    }),
+    stations: () => apiRequest('v1/stations', { resultEl: $('#stations-result') }).then((data) => {
+      showResult($('#stations-result'), data);
+      renderStationsExample(data);
+    }),
     'station-detail': () => {
       const id = parseNumberValue($('#station-id').value);
       if (!id) {
@@ -687,7 +921,10 @@ function registerActions() {
         return;
       }
       apiRequest(`v1/stations/${id}`, { resultEl: $('#stations-result') })
-        .then((data) => showResult($('#stations-result'), data));
+        .then((data) => {
+          showResult($('#stations-result'), data);
+          renderStationsExample(data);
+        });
     },
     'station-latest': () => {
       const id = parseNumberValue($('#station-id').value);
@@ -696,7 +933,10 @@ function registerActions() {
         return;
       }
       apiRequest(`v1/stations/${id}/latest`, { resultEl: $('#stations-result') })
-        .then((data) => showResult($('#stations-result'), data));
+        .then((data) => {
+          showResult($('#stations-result'), data);
+          renderMeasurementsExample(data);
+        });
     },
     'station-measurements': () => {
       const id = parseNumberValue($('#station-id').value);
@@ -715,16 +955,28 @@ function registerActions() {
       const tz = $('#station-tz')?.value.trim();
       if (tz) params.tz = tz;
       apiRequest(`v1/stations/${id}/measurements`, { params, resultEl: $('#stations-result') })
-        .then((data) => showResult($('#stations-result'), data));
+        .then((data) => {
+          showResult($('#stations-result'), data);
+          renderMeasurementsExample(data);
+        });
     },
     measurements: () => apiRequest('v1/measurements', { resultEl: $('#measurements-result') })
-      .then((data) => showResult($('#measurements-result'), data)),
+      .then((data) => {
+        showResult($('#measurements-result'), data);
+        renderMeasurementsExample(data);
+      }),
     'measurements-latest': () => apiRequest('v1/measurements/latest', { resultEl: $('#measurements-result') })
-      .then((data) => showResult($('#measurements-result'), data)),
+      .then((data) => {
+        showResult($('#measurements-result'), data);
+        renderMeasurementsExample(data);
+      }),
     'measurements-custom': () => {
       const params = gatherMeasurementParams();
       apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
-        .then((data) => showResult($('#measurements-result'), data));
+        .then((data) => {
+          showResult($('#measurements-result'), data);
+          renderMeasurementsExample(data);
+        });
     },
     'measurements-range': () => {
       const params = gatherMeasurementParams();
@@ -733,7 +985,10 @@ function registerActions() {
         return;
       }
       apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
-        .then((data) => showResult($('#measurements-result'), data));
+        .then((data) => {
+          showResult($('#measurements-result'), data);
+          renderMeasurementsExample(data);
+        });
     },
     'measurements-by-ids': () => {
       const ids = parseCsvNumbers($('#measurement-station-ids')?.value);
@@ -743,7 +998,10 @@ function registerActions() {
       }
       const params = { ...gatherMeasurementParams(), station_id: ids };
       apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
-        .then((data) => showResult($('#measurements-result'), data));
+        .then((data) => {
+          showResult($('#measurements-result'), data);
+          renderMeasurementsExample(data);
+        });
     },
     'measurements-by-names': () => {
       const names = parseCsvStrings($('#measurement-station-names')?.value);
@@ -753,15 +1011,24 @@ function registerActions() {
       }
       const params = { ...gatherMeasurementParams(), station_name: names.join(',') };
       apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
-        .then((data) => showResult($('#measurements-result'), data));
+        .then((data) => {
+          showResult($('#measurements-result'), data);
+          renderMeasurementsExample(data);
+        });
     },
     'heatmap-load': () => {
       loadHourlyHeatmap();
     },
     'alert-rules': () => apiRequest('v1/alerts/rules', { resultEl: $('#alerts-result') })
-      .then((data) => showResult($('#alerts-result'), data)),
+      .then((data) => {
+        showResult($('#alerts-result'), data);
+        renderAlertsExample(data);
+      }),
     'alert-events': () => apiRequest('v1/alerts/events', { resultEl: $('#alerts-result') })
-      .then((data) => showResult($('#alerts-result'), data)),
+      .then((data) => {
+        showResult($('#alerts-result'), data);
+        renderAlertsExample(data);
+      }),
     'export-csv': async () => {
       const query = $('#export-query').value.trim();
       const status = $('#export-status');
@@ -859,7 +1126,10 @@ function registerForms() {
     };
     const type = $('#aggregate-type').value;
     apiRequest(`v1/aggregates/${type}`, { params, resultEl: $('#aggregates-result') })
-      .then((data) => showResult($('#aggregates-result'), data));
+      .then((data) => {
+        showResult($('#aggregates-result'), data);
+        renderAggregatesExample(data);
+      });
   });
 
   $('#create-rule-form').addEventListener('submit', (ev) => {
@@ -886,6 +1156,7 @@ function registerForms() {
       resultEl: $('#alerts-result')
     }).then((data) => {
       showResult($('#alerts-result'), data);
+      renderAlertsExample(data);
       $('#create-rule-form').reset();
     }).catch(() => {});
   });
@@ -915,6 +1186,7 @@ function registerForms() {
       resultEl: $('#alerts-result')
     }).then((data) => {
       showResult($('#alerts-result'), data);
+      renderAlertsExample(data);
       $('#update-rule-form').reset();
     }).catch(() => {});
   });
@@ -932,6 +1204,7 @@ function registerForms() {
       resultEl: $('#alerts-result')
     }).then((data) => {
       showResult($('#alerts-result'), data);
+      renderAlertsExample(data);
       $('#delete-rule-form').reset();
     }).catch(() => {});
   });

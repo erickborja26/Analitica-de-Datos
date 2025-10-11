@@ -51,6 +51,9 @@
           <h2>Salud del servicio</h2>
           <button data-action="health">Consultar /v1/health</button>
           <pre class="result" id="health-result"></pre>
+          <div class="example-panel" id="health-example" aria-live="polite">
+            <p class="example-placeholder">Aquí verás una tarjeta resumen con el estado del servicio.</p>
+          </div>
         </section>
 
         <section>
@@ -77,6 +80,9 @@
         <input type="text" id="station-tz" placeholder="tz=America/Lima" />
       </div>
       <pre class="result" id="stations-result"></pre>
+      <div class="example-panel" id="stations-example" aria-live="polite">
+        <p class="example-placeholder">Cuando consultes estaciones verás tarjetas con su ubicación y coordenadas.</p>
+      </div>
     </section>
 
     <section>
@@ -108,6 +114,9 @@
         <button data-action="measurements-by-names">Multi-estación por nombre</button>
       </div>
       <pre class="result" id="measurements-result"></pre>
+      <div class="example-panel" id="measurements-example" aria-live="polite">
+        <p class="example-placeholder">Las mediciones recientes aparecerán en una mini línea de tiempo.</p>
+      </div>
     </section>
 
     <section>
@@ -166,6 +175,9 @@
         <button type="submit">Consultar agregados</button>
       </form>
       <pre class="result" id="aggregates-result"></pre>
+      <div class="example-panel" id="aggregates-example" aria-live="polite">
+        <p class="example-placeholder">Los agregados se mostrarán como tabla con promedios y extremos.</p>
+      </div>
     </section>
 
     <section>
@@ -215,6 +227,9 @@
         </form>
       </details>
       <pre class="result" id="alerts-result"></pre>
+      <div class="example-panel" id="alerts-example" aria-live="polite">
+        <p class="example-placeholder">Aquí verás una lista rápida de reglas activas o eventos recientes.</p>
+      </div>
     </section>
 
     <section>

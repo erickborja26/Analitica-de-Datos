@@ -1,0 +1,33 @@
+# ===== ENTORNOS VIRTUALES =====
+PC1/venv/
+PC2/venv/
+venv/
+.env
+config.env
+
+# ===== ARCHIVOS TEMPORALES Y CACHE =====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# ===== CONFIGURACIÓN DE EDITORES =====
+.vscode/
+.idea/
+*.code-workspace
+
+# ===== ARCHIVOS DE SISTEMA =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== ARCHIVOS DE BACKUP / SALIDAS =====
+*.zip
+*.tar
+*.gz
+*.7z

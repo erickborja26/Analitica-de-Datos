@@ -73,9 +73,18 @@ function showResult(el, data) {
 function buildUrl(path, params = {}) {
   const url = new URL(path, state.baseUrl.endsWith('/') ? state.baseUrl : state.baseUrl + '/');
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.set(key, value);
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      const items = value.filter((item) => item !== undefined && item !== null && item !== '');
+      if (!items.length) return;
+      url.searchParams.delete(key);
+      items.forEach((item) => {
+        url.searchParams.append(key, item);
+      });
+      return;
     }
+    if (value === '') return;
+    url.searchParams.set(key, value);
   });
   return url;
 }
@@ -389,6 +398,37 @@ function toISO(value) {
   }
 }
 
+function parseCsvNumbers(value) {
+  if (!value) return [];
+  return value
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => Number(item))
+    .filter((num) => Number.isFinite(num));
+}
+
+function parseCsvStrings(value) {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function gatherMeasurementParams() {
+  const tz = $('#measurement-tz')?.value.trim();
+  return {
+    start: toISO($('#measurement-start')?.value),
+    end: toISO($('#measurement-end')?.value),
+    fields: $('#measurement-fields')?.value.trim(),
+    limit: parseNumberValue($('#measurement-limit')?.value),
+    offset: parseNumberValue($('#measurement-offset')?.value),
+    order: $('#measurement-order')?.value || 'asc',
+    tz: tz ? tz : undefined
+  };
+}
+
 function registerActions() {
   const actions = {
     health: () => apiRequest('v1/health', { resultEl: $('#health-result') }).then((data) => showResult($('#health-result'), data)),
@@ -419,8 +459,14 @@ function registerActions() {
       }
       const params = {
         limit: parseNumberValue($('#station-limit').value),
-        offset: parseNumberValue($('#station-offset').value)
+        offset: parseNumberValue($('#station-offset').value),
+        start: toISO($('#station-start')?.value),
+        end: toISO($('#station-end')?.value),
+        fields: $('#station-fields')?.value.trim(),
+        order: $('#station-order')?.value || 'desc'
       };
+      const tz = $('#station-tz')?.value.trim();
+      if (tz) params.tz = tz;
       apiRequest(`v1/stations/${id}/measurements`, { params, resultEl: $('#stations-result') })
         .then((data) => showResult($('#stations-result'), data));
     },
@@ -429,11 +475,36 @@ function registerActions() {
     'measurements-latest': () => apiRequest('v1/measurements/latest', { resultEl: $('#measurements-result') })
       .then((data) => showResult($('#measurements-result'), data)),
     'measurements-custom': () => {
-      const params = {
-        fields: $('#measurement-fields').value.trim(),
-        limit: parseNumberValue($('#measurement-limit').value),
-        offset: parseNumberValue($('#measurement-offset').value)
-      };
+      const params = gatherMeasurementParams();
+      apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
+        .then((data) => showResult($('#measurements-result'), data));
+    },
+    'measurements-range': () => {
+      const params = gatherMeasurementParams();
+      if (!params.start && !params.end) {
+        setStatus('Selecciona al menos fecha de inicio o fin para aplicar el rango.', 'warn');
+        return;
+      }
+      apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
+        .then((data) => showResult($('#measurements-result'), data));
+    },
+    'measurements-by-ids': () => {
+      const ids = parseCsvNumbers($('#measurement-station-ids')?.value);
+      if (!ids.length) {
+        setStatus('Ingresa al menos un ID de estación válido.', 'warn');
+        return;
+      }
+      const params = { ...gatherMeasurementParams(), station_id: ids };
+      apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
+        .then((data) => showResult($('#measurements-result'), data));
+    },
+    'measurements-by-names': () => {
+      const names = parseCsvStrings($('#measurement-station-names')?.value);
+      if (!names.length) {
+        setStatus('Ingresa al menos un nombre de estación.', 'warn');
+        return;
+      }
+      const params = { ...gatherMeasurementParams(), station_name: names.join(',') };
       apiRequest('v1/measurements', { params, resultEl: $('#measurements-result') })
         .then((data) => showResult($('#measurements-result'), data));
     },

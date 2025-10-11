@@ -75,17 +75,6 @@ body {
   color: var(--fg);
 }
 
-.config-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
-}
-
-.config-actions button {
-  flex: 0 0 auto;
-}
-
 .config-form input,
 .config-form button {
   font: inherit;
@@ -114,12 +103,6 @@ body {
 
 .config-form button:hover {
   transform: translateY(-1px) scale(1.01);
-}
-
-.config-form button.ghost {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
 .quick-actions {
@@ -180,9 +163,6 @@ body {
   border-radius: 12px;
   border: 1px solid rgba(16, 185, 129, 0.25);
   width: fit-content;
-  max-width: min(100%, 640px);
-  line-height: 1.45;
-  white-space: pre-wrap;
 }
 
 .status.warn {

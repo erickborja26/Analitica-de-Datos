@@ -22,10 +22,7 @@
           API Key
           <input type="text" id="api-key" placeholder="Opcional" />
         </label>
-        <div class="config-actions">
-          <button type="submit">Actualizar</button>
-          <button type="button" id="test-connection" class="ghost">Probar conexión</button>
-        </div>
+        <button type="submit">Actualizar</button>
       </form>
       <div class="quick-actions" aria-label="Acciones rápidas">
         <button class="quick-card" data-action="health">
@@ -195,7 +192,6 @@
             <li>Los resultados se muestran en formato JSON con sangría.</li>
             <li>Si configuraste <code>API_KEY</code> en el backend, ingrésala arriba para incluirla automáticamente.</li>
             <li>Cada resultado puede copiarse haciendo clic en el panel.</li>
-            <li>Si ves “Failed to fetch”, verifica la URL base, que el backend esté encendido y que no existan bloqueos de CORS o contenido mixto.</li>
           </ul>
         </section>
         <section class="sidebar-card history-card">

@@ -43,13 +43,6 @@ function showResult(el, data) {
   }
 }
 
-function buildAuthHeaders({ acceptJson = false } = {}) {
-  const headers = {};
-  if (acceptJson) headers['Accept'] = 'application/json';
-  if (state.apiKey) headers['X-API-Key'] = state.apiKey;
-  return headers;
-}
-
 function buildUrl(path, params = {}) {
   const url = new URL(path, state.baseUrl.endsWith('/') ? state.baseUrl : state.baseUrl + '/');
   Object.entries(params).forEach(([key, value]) => {
@@ -147,35 +140,15 @@ function generateCurl(entry) {
   return parts.join(' ');
 }
 
-function describeNetworkError(error, url) {
-  const origin = (url && url.origin) || state.baseUrl;
-  const message = (error && error.message) || 'Error de red desconocido.';
-  const hints = [
-    `No se pudo contactar ${origin}.`,
-    'Verifica que el servidor Flask esté corriendo y accesible desde tu navegador.',
-    'Revisa que la URL base sea correcta y que no exista un bloqueador de red o VPN impidiéndolo.'
-  ];
-
-  const lowerMessage = message.toLowerCase();
-  if (lowerMessage.includes('failed to fetch') || lowerMessage.includes('networkerror')) {
-    hints.push('Esto suele ocurrir cuando el backend está apagado, la URL es incorrecta o el navegador bloquea la petición por CORS.');
-  }
-  const pageProtocol = typeof window !== 'undefined' && window.location ? window.location.protocol : '';
-  if (pageProtocol === 'https:' && origin.startsWith('http:')) {
-    hints.push('Estás viendo la interfaz en HTTPS e intentando llamar un backend HTTP. El navegador podría bloquear contenido mixto; abre la app en HTTP o habilita HTTPS en la API.');
-  }
-
-  hints.push(`Mensaje original: ${message}`);
-  return hints.join(' ');
-}
-
 async function apiRequest(path, { method = 'GET', params, body, resultEl, expectJson = true, raw = false } = {}) {
   if (resultEl) {
     showLoading(resultEl);
   }
-  const headers = buildAuthHeaders({ acceptJson: expectJson });
+  const headers = {};
   const startedAt = performance.now();
   const url = buildUrl(path, params);
+  if (expectJson) headers['Accept'] = 'application/json';
+  if (state.apiKey) headers['X-API-Key'] = state.apiKey;
   let payload;
   if (body !== undefined && body !== null) {
     headers['Content-Type'] = 'application/json';
@@ -221,7 +194,7 @@ async function apiRequest(path, { method = 'GET', params, body, resultEl, expect
         error: false,
         timestamp: new Date().toISOString()
       });
-      return { res, text: responseText };
+      return { res, text };
     }
     if (!responseText) {
       pushHistory({
@@ -285,14 +258,8 @@ async function apiRequest(path, { method = 'GET', params, body, resultEl, expect
       return responseText;
     }
   } catch (error) {
-    let friendlyMessage = error.message || String(error);
-    if (/failed to fetch|networkerror/i.test(friendlyMessage) || error.name === 'TypeError') {
-      friendlyMessage = describeNetworkError(error, url);
-      error.message = friendlyMessage;
-    }
-
     if (resultEl) {
-      showResult(resultEl, friendlyMessage);
+      showResult(resultEl, error.message || String(error));
     }
     if (!error.__historyLogged) {
       pushHistory({
@@ -301,50 +268,13 @@ async function apiRequest(path, { method = 'GET', params, body, resultEl, expect
         status: 'error',
         statusText: 'Error de red',
         duration: performance.now() - startedAt,
-        preview: truncatePreview(friendlyMessage),
+        preview: truncatePreview(error.message || String(error)),
         headers,
         body: payload,
         error: true,
         timestamp: new Date().toISOString()
       });
     }
-    setStatus(friendlyMessage, 'error');
-    throw error;
-  }
-}
-
-async function testConnection({ quiet = false } = {}) {
-  const url = buildUrl('v1/health');
-  const headers = buildAuthHeaders({ acceptJson: true });
-  const startedAt = performance.now();
-  if (!quiet) {
-    setStatus(`Verificando conexión con ${url.origin}…`);
-  }
-  try {
-    const res = await fetch(url.toString(), { headers });
-    const duration = performance.now() - startedAt;
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`${res.status} ${res.statusText}: ${txt}`);
-    }
-    let details = '';
-    const contentType = res.headers.get('Content-Type') || '';
-    if (contentType.includes('application/json')) {
-      try {
-        const json = await res.json();
-        details = json?.status || json?.message || JSON.stringify(json);
-      } catch (err) {
-        details = await res.text();
-      }
-    } else {
-      details = await res.text();
-    }
-    const summary = `Conexión exitosa con ${url.origin} (${formatDuration(duration)}). ${details || ''}`.trim();
-    setStatus(summary);
-    return summary;
-  } catch (error) {
-    const friendlyMessage = describeNetworkError(error, url);
-    setStatus(friendlyMessage, 'error');
     throw error;
   }
 }
@@ -362,18 +292,7 @@ function initConfigForm() {
     localStorage.setItem('pc2-base-url', state.baseUrl);
     localStorage.setItem('pc2-api-key', state.apiKey);
     setStatus(`Configuración actualizada: ${state.baseUrl}`);
-    testConnection().catch(() => {});
   });
-
-  const testBtn = $('#test-connection');
-  if (testBtn) {
-    testBtn.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      state.baseUrl = baseInput.value.replace(/\/$/, '');
-      state.apiKey = apiInput.value.trim();
-      testConnection().catch(() => {});
-    });
-  }
 }
 
 function attachCopyOnClick() {
@@ -645,5 +564,4 @@ window.addEventListener('DOMContentLoaded', () => {
   registerForms();
   initHistoryControls();
   setStatus('Listo para enviar solicitudes.');
-  testConnection({ quiet: true }).catch(() => {});
 });

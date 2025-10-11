@@ -64,7 +64,17 @@
       <div class="form-row">
         <input type="number" min="1" id="station-limit" placeholder="Límite (def. 100)" />
         <input type="number" min="0" id="station-offset" placeholder="Offset" />
+        <select id="station-order">
+          <option value="desc" selected>Ordenar por fecha ↓</option>
+          <option value="asc">Ordenar por fecha ↑</option>
+        </select>
         <button data-action="station-measurements">Historial mediciones</button>
+      </div>
+      <div class="form-row">
+        <input type="datetime-local" id="station-start" placeholder="Inicio (opcional)" />
+        <input type="datetime-local" id="station-end" placeholder="Fin (opcional)" />
+        <input type="text" id="station-fields" placeholder="fields=pm25,pm10" />
+        <input type="text" id="station-tz" placeholder="tz=America/Lima" />
       </div>
       <pre class="result" id="stations-result"></pre>
     </section>
@@ -77,7 +87,25 @@
         <input type="text" id="measurement-fields" placeholder="fields=pm25,pm10" />
         <input type="number" min="1" id="measurement-limit" placeholder="Límite" />
         <input type="number" min="0" id="measurement-offset" placeholder="Offset" />
-        <button data-action="measurements-custom">Filtrar</button>
+        <select id="measurement-order">
+          <option value="asc">Ordenar por fecha ↑</option>
+          <option value="desc">Ordenar por fecha ↓</option>
+        </select>
+        <button data-action="measurements-custom">Aplicar filtros</button>
+      </div>
+      <div class="form-row">
+        <input type="datetime-local" id="measurement-start" placeholder="Inicio (ISO)" />
+        <input type="datetime-local" id="measurement-end" placeholder="Fin (ISO)" />
+        <input type="text" id="measurement-tz" placeholder="tz=America/Lima" />
+        <button data-action="measurements-range">Filtrar por rango</button>
+      </div>
+      <div class="form-row">
+        <input type="text" id="measurement-station-ids" placeholder="IDs de estación (ej. 1,2,3)" />
+        <button data-action="measurements-by-ids">Multi-estación por ID</button>
+      </div>
+      <div class="form-row">
+        <input type="text" id="measurement-station-names" placeholder="Nombres de estación (coma)" />
+        <button data-action="measurements-by-names">Multi-estación por nombre</button>
       </div>
       <pre class="result" id="measurements-result"></pre>
     </section>

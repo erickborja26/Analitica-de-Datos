@@ -29,7 +29,8 @@ const state = {
   baseUrl: normalizeBaseUrl(detectDefaultBaseUrl()),
   apiKey: localStorage.getItem('pc2-api-key') || '',
   history: [],
-  stationIds: null
+  stationIds: null,
+  latestEvent: null
 };
 
 const POLLUTANTS = [
@@ -48,6 +49,11 @@ const statusEl = $('#status');
 const historyEl = $('#request-history');
 const historyPreviewEl = $('#history-preview');
 const loadingTemplate = $('#loading-template');
+const latestAlertEl = $('#latest-alert');
+const latestAlertMessageEl = $('#latest-alert-message');
+const latestAlertTimeEl = $('#latest-alert-time');
+const latestAlertDetailsEl = $('#latest-alert-details');
+const latestAlertRefreshBtn = $('#latest-alert-refresh');
 
 if (statusEl) {
   statusEl.hidden = true;
@@ -306,6 +312,154 @@ function renderAlertsExample(data) {
     <div class="example-title">Ejemplos (${Math.min(items.length, 5)} mostrados)</div>
     <div class="alerts-list">${list}</div>
   `);
+}
+
+function normalizeAlertEvents(data) {
+  if (!data) return [];
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    if (Array.isArray(data.event)) return data.event;
+    if (data.event) return [data.event];
+    if ('rule_id' in data || 'rule_name' in data || 'triggered_at' in data || 'station_id' in data) {
+      return [data];
+    }
+  }
+  return [];
+}
+
+function formatEventValue(value, unit) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  let rendered;
+  if (Number.isFinite(num)) {
+    const abs = Math.abs(num);
+    if (abs >= 100) {
+      rendered = num.toFixed(0);
+    } else if (abs >= 10) {
+      rendered = num.toFixed(1);
+    } else {
+      rendered = num.toFixed(2);
+    }
+  } else {
+    rendered = String(value);
+  }
+  return unit ? `${rendered} ${unit}` : rendered;
+}
+
+function renderLatestAlert(event, meta = {}) {
+  if (!latestAlertEl || !latestAlertMessageEl || !latestAlertDetailsEl || !latestAlertTimeEl) return;
+  latestAlertEl.classList.remove('is-loading', 'has-error', 'has-event', 'is-empty');
+  latestAlertDetailsEl.innerHTML = '';
+  latestAlertDetailsEl.hidden = true;
+  latestAlertTimeEl.hidden = true;
+
+  if (meta.loading) {
+    latestAlertEl.classList.add('is-loading');
+    latestAlertMessageEl.textContent = 'Buscando último evento…';
+    return;
+  }
+
+  if (meta.error) {
+    latestAlertEl.classList.add('has-error');
+    latestAlertMessageEl.textContent = `No se pudo cargar el último evento (${meta.error}).`;
+    return;
+  }
+
+  if (!event) {
+    latestAlertEl.classList.add('is-empty');
+    latestAlertMessageEl.textContent = 'Aún no hay eventos de alerta registrados.';
+    return;
+  }
+
+  latestAlertEl.classList.add('has-event');
+
+  const timestamp = event.triggered_at || event.created_at || event.updated_at || event.timestamp || event.occurred_at;
+  const ruleName = event.rule_name || event.name || event.rule || (event.rule_id ? `Regla ${event.rule_id}` : '');
+  const station = event.station_name || event.station || event.location || (event.station_id ? `Estación ${event.station_id}` : '');
+  const pollutantRaw = event.pollutant || event.metric || event.parameter || event.contaminant;
+  const pollutant = typeof pollutantRaw === 'string' ? pollutantRaw.toUpperCase() : pollutantRaw;
+  const unit = event.unit || event.units || event.measurement_unit || event.unit_label;
+  const concentrationRaw = event.value ?? event.measurement ?? event.concentration ?? event.reading ?? event.level;
+  const concentration = formatEventValue(concentrationRaw, unit);
+  const thresholdRaw = event.threshold ?? event.rule_threshold ?? event.limit ?? event.threshold_value;
+  const threshold = formatEventValue(thresholdRaw, unit);
+
+  let summary = event.message || event.description;
+  if (!summary) {
+    if (pollutant && concentration && station) {
+      summary = `${pollutant} alcanzó ${concentration} en ${station}.`;
+    } else if (pollutant && concentration) {
+      summary = `${pollutant} alcanzó ${concentration}.`;
+    } else if (ruleName && station) {
+      summary = `La regla ${ruleName} se activó en ${station}.`;
+    } else if (ruleName) {
+      summary = `La regla ${ruleName} se activó.`;
+    } else {
+      summary = 'Se registró un evento de alerta.';
+    }
+  }
+  latestAlertMessageEl.textContent = summary;
+
+  if (timestamp) {
+    latestAlertTimeEl.textContent = `Ocurrido: ${formatLocalDateTime(timestamp)}`;
+    latestAlertTimeEl.hidden = false;
+  }
+
+  const details = [];
+  if (ruleName) details.push({ label: 'Regla', value: ruleName });
+  else if (event.rule_id) details.push({ label: 'Regla', value: `ID ${event.rule_id}` });
+  if (station) details.push({ label: 'Estación', value: station });
+  if (pollutant) details.push({ label: 'Contaminante', value: pollutant });
+  if (concentration) details.push({ label: 'Concentración', value: concentration });
+  if (threshold && threshold !== concentration) details.push({ label: 'Umbral', value: threshold });
+
+  if (details.length) {
+    latestAlertDetailsEl.innerHTML = details.map((detail) => `
+      <div>
+        <dt>${escapeHtml(detail.label)}</dt>
+        <dd>${escapeHtml(detail.value)}</dd>
+      </div>
+    `).join('');
+    latestAlertDetailsEl.hidden = false;
+  }
+}
+
+function updateLatestAlert(event) {
+  state.latestEvent = event || null;
+  renderLatestAlert(state.latestEvent);
+}
+
+function handleLatestAlertResponse(data) {
+  const events = normalizeAlertEvents(data);
+  updateLatestAlert(events[0] || null);
+}
+
+async function loadLatestAlertEvent(options = {}) {
+  if (!latestAlertEl) return null;
+  const { silent = false } = options;
+  if (!state.baseUrl) {
+    updateLatestAlert(null);
+    return null;
+  }
+  if (!silent) {
+    renderLatestAlert(null, { loading: true });
+  }
+  try {
+    const data = await apiRequest('v1/alerts/events', {
+      params: { limit: 1 },
+      logHistory: false
+    });
+    const events = normalizeAlertEvents(data);
+    const latest = events[0] || null;
+    updateLatestAlert(latest);
+    return latest;
+  } catch (error) {
+    const message = (error?.message || String(error)).split('\n')[0];
+    renderLatestAlert(null, { error: message });
+    return null;
+  }
 }
 
 function buildUrl(path, params = {}) {
@@ -579,8 +733,10 @@ async function testConnection() {
     } else {
       setStatus(`La API respondió sin contenido desde ${state.baseUrl}`, 'warn');
     }
+    await loadLatestAlertEvent({ silent: true });
   } catch (error) {
     setStatus(`No se pudo contactar la API (${error.message || error}).`, 'error');
+    renderLatestAlert(null, { error: (error?.message || String(error)).split('\n')[0] });
   }
 }
 
@@ -599,6 +755,15 @@ function initConfigForm() {
     setStatus(`Configuración actualizada: ${state.baseUrl || '—'}`);
     testConnection();
   });
+}
+
+function initLatestAlertControls() {
+  renderLatestAlert(state.latestEvent);
+  if (latestAlertRefreshBtn) {
+    latestAlertRefreshBtn.addEventListener('click', () => {
+      loadLatestAlertEvent();
+    });
+  }
 }
 
 function attachCopyOnClick() {
@@ -1028,6 +1193,7 @@ function registerActions() {
       .then((data) => {
         showResult($('#alerts-result'), data);
         renderAlertsExample(data);
+        handleLatestAlertResponse(data);
       }),
     'export-csv': async () => {
       const query = $('#export-query').value.trim();
@@ -1157,6 +1323,10 @@ function registerForms() {
     }).then((data) => {
       showResult($('#alerts-result'), data);
       renderAlertsExample(data);
+      handleLatestAlertResponse(data);
+      if (evaluate) {
+        loadLatestAlertEvent({ silent: true });
+      }
       $('#create-rule-form').reset();
     }).catch(() => {});
   });
@@ -1176,6 +1346,8 @@ function registerForms() {
         const suffix = count === 1 ? 'evento nuevo.' : `${count} eventos nuevos.`;
         setStatus(`Evaluación completada: ${suffix}`, count ? 'success' : 'info');
       }
+      handleLatestAlertResponse(data);
+      loadLatestAlertEvent({ silent: true });
       $('#evaluate-rules-form').reset();
     }).catch(() => {});
   });
@@ -1235,5 +1407,6 @@ window.addEventListener('DOMContentLoaded', () => {
   registerActions();
   registerForms();
   initHistoryControls();
+  initLatestAlertControls();
   testConnection();
 });

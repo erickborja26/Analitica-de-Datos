@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PC2 API Explorer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="hero-copy">
+        <h1>PC2 API Explorer</h1>
+        <p>Tablero visual para probar los endpoints del backend en <code>PC2/app.py</code>.</p>
+      </div>
+      <form id="config-form" class="config-form">
+        <label>
+          Base URL
+          <input type="url" id="base-url" value="http://localhost:5000" required />
+        </label>
+        <label>
+          API Key
+          <input type="text" id="api-key" placeholder="Opcional" />
+        </label>
+        <div class="config-actions">
+          <button type="submit">Actualizar</button>
+          <button type="button" id="test-connection" class="ghost">Probar conexión</button>
+        </div>
+      </form>
+      <div class="quick-actions" aria-label="Acciones rápidas">
+        <button class="quick-card" data-action="health">
+          <span class="quick-title">Ping</span>
+          <span class="quick-subtitle">/v1/health</span>
+        </button>
+        <button class="quick-card" data-action="stations">
+          <span class="quick-title">Estaciones</span>
+          <span class="quick-subtitle">Listar estaciones</span>
+        </button>
+        <button class="quick-card" data-action="measurements-latest">
+          <span class="quick-title">Últimos datos</span>
+          <span class="quick-subtitle">Por estación</span>
+        </button>
+        <button class="quick-card" data-action="alert-rules">
+          <span class="quick-title">Alertas</span>
+          <span class="quick-subtitle">Reglas activas</span>
+        </button>
+      </div>
+      <div id="status" class="status" aria-live="polite"></div>
+    </header>
+
+    <main class="workspace">
+      <div class="workspace-main">
+        <section>
+          <h2>Salud del servicio</h2>
+          <button data-action="health">Consultar /v1/health</button>
+          <pre class="result" id="health-result"></pre>
+        </section>
+
+        <section>
+      <h2>Estaciones</h2>
+      <button data-action="stations">Listar /v1/stations</button>
+      <div class="form-row">
+        <input type="number" min="1" id="station-id" placeholder="ID de estación" />
+        <button data-action="station-detail">Ver detalle</button>
+        <button data-action="station-latest">Última medición</button>
+      </div>
+      <div class="form-row">
+        <input type="number" min="1" id="station-limit" placeholder="Límite (def. 100)" />
+        <input type="number" min="0" id="station-offset" placeholder="Offset" />
+        <button data-action="station-measurements">Historial mediciones</button>
+      </div>
+      <pre class="result" id="stations-result"></pre>
+    </section>
+
+    <section>
+      <h2>Mediciones globales</h2>
+      <button data-action="measurements">Listar /v1/measurements</button>
+      <button data-action="measurements-latest">Últimas por estación</button>
+      <div class="form-row">
+        <input type="text" id="measurement-fields" placeholder="fields=pm25,pm10" />
+        <input type="number" min="1" id="measurement-limit" placeholder="Límite" />
+        <input type="number" min="0" id="measurement-offset" placeholder="Offset" />
+        <button data-action="measurements-custom">Filtrar</button>
+      </div>
+      <pre class="result" id="measurements-result"></pre>
+    </section>
+
+    <section>
+      <h2>Agregados</h2>
+      <form id="aggregates-form" class="form-grid">
+        <label>
+          Tipo
+          <select id="aggregate-type">
+            <option value="hourly">/v1/aggregates/hourly</option>
+            <option value="daily">/v1/aggregates/daily</option>
+          </select>
+        </label>
+        <label>
+          station_id
+          <input type="number" min="1" id="aggregate-station" />
+        </label>
+        <label>
+          start (ISO)
+          <input type="datetime-local" id="aggregate-start" />
+        </label>
+        <label>
+          end (ISO)
+          <input type="datetime-local" id="aggregate-end" />
+        </label>
+        <label>
+          tz
+          <input type="text" id="aggregate-tz" placeholder="America/Lima" />
+        </label>
+        <label>
+          fields
+          <input type="text" id="aggregate-fields" placeholder="pm25,pm10" />
+        </label>
+        <label>
+          limit
+          <input type="number" min="1" id="aggregate-limit" />
+        </label>
+        <label>
+          offset
+          <input type="number" min="0" id="aggregate-offset" />
+        </label>
+        <button type="submit">Consultar agregados</button>
+      </form>
+      <pre class="result" id="aggregates-result"></pre>
+    </section>
+
+    <section>
+      <h2>Alertas &amp; reglas</h2>
+      <div class="form-row">
+        <button data-action="alert-rules">Listar reglas</button>
+        <button data-action="alert-events">Ver eventos</button>
+      </div>
+      <details>
+        <summary>Crear nueva regla</summary>
+        <form id="create-rule-form" class="form-grid">
+          <label>Nombre<input required type="text" id="rule-name" /></label>
+          <label>station_id<input type="number" min="1" id="rule-station" /></label>
+          <label>Pollutant<select id="rule-pollutant" required>
+            <option value="pm25">pm25</option>
+            <option value="pm10">pm10</option>
+            <option value="so2">so2</option>
+            <option value="no2">no2</option>
+            <option value="o3">o3</option>
+            <option value="co">co</option>
+          </select></label>
+          <label>Operator<select id="rule-operator" required>
+            <option value="gt">&gt;</option>
+            <option value="ge">≥</option>
+            <option value="lt">&lt;</option>
+            <option value="le">≤</option>
+          </select></label>
+          <label>Threshold<input type="number" step="any" id="rule-threshold" required /></label>
+          <label>Window<input type="text" id="rule-window" placeholder="Opcional" /></label>
+          <label>Enabled<select id="rule-enabled"><option value="true">Sí</option><option value="false">No</option></select></label>
+          <label><input type="checkbox" id="rule-evaluate" /> Evaluar inmediatamente</label>
+          <button type="submit">Crear regla</button>
+        </form>
+      </details>
+      <details>
+        <summary>Actualizar / eliminar regla</summary>
+        <form id="update-rule-form" class="form-grid">
+          <label>ID regla<input type="number" min="1" id="update-rule-id" required /></label>
+          <label>Payload JSON
+            <textarea id="update-payload" rows="4" placeholder='{"threshold":45,"enabled":false}'></textarea>
+          </label>
+          <button type="submit">Actualizar</button>
+        </form>
+        <form id="delete-rule-form" class="form-row">
+          <input type="number" min="1" id="delete-rule-id" placeholder="ID a eliminar" required />
+          <button type="submit" class="danger">Eliminar</button>
+        </form>
+      </details>
+      <pre class="result" id="alerts-result"></pre>
+    </section>
+
+    <section>
+      <h2>Exportar CSV</h2>
+      <p>Descarga directa del endpoint <code>/v1/export/csv</code>.</p>
+      <div class="form-row">
+        <input type="text" id="export-query" placeholder="Query string opcional (p.ej. station_id=1)" />
+        <button data-action="export-csv">Descargar</button>
+      </div>
+          <div id="export-status"></div>
+        </section>
+      </div>
+      <aside class="workspace-aside">
+        <section class="sidebar-card">
+          <h2>Ayuda rápida</h2>
+          <ul>
+            <li>Los parámetros se envían como query strings (GET) o JSON (POST/PUT).</li>
+            <li>Los resultados se muestran en formato JSON con sangría.</li>
+            <li>Si configuraste <code>API_KEY</code> en el backend, ingrésala arriba para incluirla automáticamente.</li>
+            <li>Cada resultado puede copiarse haciendo clic en el panel.</li>
+            <li>Si ves “Failed to fetch”, verifica la URL base, que el backend esté encendido y que no existan bloqueos de CORS o contenido mixto.</li>
+          </ul>
+        </section>
+        <section class="sidebar-card history-card">
+          <div class="history-header">
+            <h2>Historial de solicitudes</h2>
+            <button id="clear-history" type="button" class="ghost">Limpiar</button>
+          </div>
+          <p class="history-hint">Haz clic en un elemento para volver a ver la respuesta o copiar el cURL.</p>
+          <ul id="request-history" class="history-list" aria-live="polite"></ul>
+          <pre class="result compact" id="history-preview">Aquí aparecerán las respuestas del historial.</pre>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="app-footer">
+      <span>Explorador interactivo para la API de monitoreo ambiental.</span>
+      <span class="badge">PC2</span>
+    </footer>
+  </div>
+
+  <template id="loading-template">Cargando…</template>
+  <script src="app.js"></script>
+</body>
+</html>

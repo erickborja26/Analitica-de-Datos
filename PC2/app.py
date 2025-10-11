@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional, Tuple
 
 from flask import Flask, jsonify, request, Response, abort
+from flask_cors import CORS
 from dotenv import load_dotenv
 import mysql.connector
 from mysql.connector import pooling
@@ -33,6 +34,12 @@ POOL: pooling.MySQLConnectionPool | None = None
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["JSON_SORT_KEYS"] = False
+    CORS(
+        app,
+        resources={r"/v1/*": {"origins": "*"}},
+        supports_credentials=False,
+        allow_headers=["Content-Type", "X-API-Key"],
+    )
 
     # connection pool
     global POOL

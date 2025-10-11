@@ -42,6 +42,19 @@
           <span class="quick-subtitle">Reglas activas</span>
         </button>
       </div>
+      <div class="latest-alert" id="latest-alert" aria-live="polite">
+        <div class="latest-alert__icon" aria-hidden="true">
+          <span class="latest-alert__pulse"></span>
+          <span class="latest-alert__symbol">!</span>
+        </div>
+        <div class="latest-alert__content">
+          <p class="latest-alert__label">Último evento de alerta</p>
+          <p class="latest-alert__message" id="latest-alert-message">Aún no hay eventos de alerta registrados.</p>
+          <p class="latest-alert__time" id="latest-alert-time" hidden>—</p>
+          <dl class="latest-alert__details" id="latest-alert-details" hidden></dl>
+        </div>
+        <button type="button" class="latest-alert__refresh" id="latest-alert-refresh">Actualizar</button>
+      </div>
       <div id="status" class="status" aria-live="polite"></div>
     </header>
 

@@ -121,6 +121,312 @@ def create_app() -> Flask:
         select = ", ".join(["m.ts"] + [f"m.{c}" for c in db_cols])
         return select, req
 
+    # ==== ALERTAS: helpers y endpoints ====
+
+    POLLUTANT_DB_COL = {
+        "pm25": "pm2_5",
+        "pm10": "pm10",
+        "so2":  "so2",
+        "no2":  "no2",
+        "o3":   "o3",
+        "co":   "co",
+    }
+
+    VALID_OPERATORS = {"gt", "ge", "lt", "le"}
+
+    def _compare(val: float | None, op: str, thr: float) -> bool:
+        if val is None:
+            return False
+        if op == "gt": return val >  thr
+        if op == "ge": return val >= thr
+        if op == "lt": return val <  thr
+        if op == "le": return val <= thr
+        return False
+
+    def _fetch_latest_by_station(cur, station_ids: list[int] | None = None) -> dict[int, dict]:
+        """
+        Devuelve {station_id: { 'ts': datetime, 'pm2_5':..., 'pm10':... }} con la última medición por estación.
+        Si station_ids es None => todas las estaciones.
+        """
+        if station_ids:
+            cur.execute(
+                """
+                SELECT m.*
+                FROM measurements m
+                JOIN (
+                    SELECT station_id, MAX(ts) AS mx FROM measurements
+                    WHERE station_id IN (%s)
+                    GROUP BY station_id
+                ) t ON t.station_id=m.station_id AND t.mx=m.ts
+                """ % (",".join(["%s"] * len(station_ids))),
+                station_ids
+            )
+        else:
+            cur.execute(
+                """
+                SELECT m.*
+                FROM measurements m
+                JOIN (
+                    SELECT station_id, MAX(ts) AS mx FROM measurements GROUP BY station_id
+                ) t ON t.station_id=m.station_id AND t.mx=m.ts
+                """
+            )
+        rows = cur.fetchall()
+        by_station = { r["station_id"]: r for r in rows }
+        return by_station
+
+    def evaluate_rules(rule_id: int | None = None) -> int:
+        """
+        Evalúa reglas habilitadas (o una en particular) contra la última medición por estación
+        y genera alert_events (sin duplicar) cuando se cumple la condición.
+        Retorna cantidad de eventos insertados (nuevos).
+        """
+        inserted = 0
+        with POOL.get_connection() as cn, cn.cursor(dictionary=True) as cur:
+            # 1) Carga reglas habilitadas
+            if rule_id:
+                cur.execute("SELECT * FROM alert_rules WHERE enabled=1 AND id=%s", (rule_id,))
+            else:
+                cur.execute("SELECT * FROM alert_rules WHERE enabled=1")
+            rules = cur.fetchall()
+            if not rules:
+                return 0
+
+            # 2) Evalúa
+            for rule in rules:
+                pollutant = (rule["pollutant"] or "").lower()
+                op = (rule["operator"] or "").lower()
+                thr = float(rule["threshold"])
+                if pollutant not in POLLUTANT_DB_COL or op not in VALID_OPERATORS:
+                    continue
+                col = POLLUTANT_DB_COL[pollutant]
+
+                # estaciones objetivo
+                if rule["station_id"]:
+                    stations = [rule["station_id"]]
+                else:
+                    # todas
+                    cur.execute("SELECT id FROM stations")
+                    stations = [r["id"] for r in cur.fetchall()]
+
+                # Últimas mediciones por estación (solo las involucradas)
+                latest = _fetch_latest_by_station(cur, stations)
+
+                # 3) Inserta eventos cuando corresponda
+                for sid in stations:
+                    meas = latest.get(sid)
+                    if not meas:
+                        continue
+                    ts = meas["ts"]
+                    val = meas.get(col)
+
+                    if _compare(val, op, thr):
+                        # inserta con upsert para no duplicar
+                        cur.execute(
+                            """
+                            INSERT INTO alert_events
+                              (rule_id, station_id, ts, pollutant, value, operator, threshold)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE
+                              value=VALUES(value), operator=VALUES(operator), threshold=VALUES(threshold)
+                            """,
+                            (rule["id"], sid, ts, pollutant, val, op, thr)
+                        )
+                        # rowcount será 1 si insertó, 2 si actualizó; contamos solo insert nuevos
+                        if cur.rowcount == 1:
+                            inserted += 1
+            cn.commit()
+        return inserted
+
+    # ---------- Endpoints de reglas ----------
+
+    @app.route("/v1/alerts/rules", methods=["GET"])
+    def list_rules():
+        with POOL.get_connection() as cn, cn.cursor(dictionary=True) as cur:
+            cur.execute("""
+                SELECT r.id, r.name, r.station_id, s.name AS station_name,
+                       r.pollutant, r.operator, r.threshold, r.time_window AS window, r.enabled, r.created_at
+                FROM alert_rules r
+                LEFT JOIN stations s ON s.id=r.station_id
+                ORDER BY r.created_at DESC
+            """)
+            rules = cur.fetchall()
+        return jsonify({"items": rules})
+
+    @app.route("/v1/alerts/rules", methods=["POST"])
+    def create_rule():
+        data = request.get_json(force=True, silent=True) or {}
+        name = (data.get("name") or "").strip()
+        station_id = data.get("station_id")  # None => todas
+        pollutant = (data.get("pollutant") or "").lower()
+        operator = (data.get("operator") or "").lower()
+        threshold = data.get("threshold")
+        window = data.get("window")  # opcional
+        enabled = bool(data.get("enabled", True))
+
+        # Validación
+        if not name:
+            abort(400, description="name is required")
+        if pollutant not in POLLUTANT_DB_COL:
+            abort(400, description="pollutant must be one of: " + ",".join(POLLUTANT_DB_COL.keys()))
+        if operator not in VALID_OPERATORS:
+            abort(400, description="operator must be one of: gt,ge,lt,le")
+        try:
+            threshold = float(threshold)
+        except:
+            abort(400, description="threshold must be numeric")
+        if station_id is not None:
+            try:
+                station_id = int(station_id)
+            except:
+                abort(400, description="station_id must be integer or null")
+
+        with POOL.get_connection() as cn, cn.cursor(dictionary=True) as cur:
+            # si station_id viene, valida que exista
+            if station_id is not None:
+                cur.execute("SELECT id FROM stations WHERE id=%s", (station_id,))
+                if not cur.fetchone():
+                    abort(400, description="station_id not found")
+
+            cur.execute(
+                """INSERT INTO alert_rules
+                   (name, station_id, pollutant, operator, threshold, time_window, enabled)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                (name, station_id, pollutant, operator, threshold, window, 1 if enabled else 0)
+            )
+            rid = cur.lastrowid
+            cn.commit()
+
+        # Evaluación inmediata opcional ?evaluate_now=true
+        if (request.args.get("evaluate_now") or "").lower() in {"1", "true", "yes"}:
+            created = evaluate_rules(rule_id=rid)
+            return jsonify({"created_id": rid, "evaluated_events_created": created}), 201
+
+        return jsonify({"created_id": rid}), 201
+
+    @app.route("/v1/alerts/rules/<int:rule_id>", methods=["PUT"])
+    def update_rule(rule_id: int):
+        data = request.get_json(force=True, silent=True) or {}
+        fields = []
+        params = []
+
+        if "name" in data:
+            fields.append("name=%s"); params.append((data["name"] or "").strip())
+        if "station_id" in data:
+            sid = data["station_id"]
+            if sid is not None:
+                try: sid = int(sid)
+                except: abort(400, description="station_id must be integer or null")
+            fields.append("station_id=%s"); params.append(sid)
+        if "pollutant" in data:
+            pol = (data["pollutant"] or "").lower()
+            if pol not in POLLUTANT_DB_COL: abort(400, description="invalid pollutant")
+            fields.append("pollutant=%s"); params.append(pol)
+        if "operator" in data:
+            op = (data["operator"] or "").lower()
+            if op not in VALID_OPERATORS: abort(400, description="invalid operator")
+            fields.append("operator=%s"); params.append(op)
+        if "threshold" in data:
+            try: th = float(data["threshold"])
+            except: abort(400, description="threshold must be numeric")
+            fields.append("threshold=%s"); params.append(th)
+        if "window" in data:
+            fields.append("time_window=%s"); params.append(data["window"])
+        if "enabled" in data:
+            en = 1 if bool(data["enabled"]) else 0
+            fields.append("enabled=%s"); params.append(en)
+
+        if not fields:
+            abort(400, description="no fields to update")
+
+        params.append(rule_id)
+        with POOL.get_connection() as cn, cn.cursor() as cur:
+            cur.execute(f"UPDATE alert_rules SET {', '.join(fields)} WHERE id=%s", tuple(params))
+            if cur.rowcount == 0:
+                abort(404, description="rule not found")
+            cn.commit()
+        return jsonify({"updated_id": rule_id})
+
+    @app.route("/v1/alerts/rules/<int:rule_id>", methods=["DELETE"])
+    def delete_rule(rule_id: int):
+        with POOL.get_connection() as cn, cn.cursor() as cur:
+            cur.execute("DELETE FROM alert_rules WHERE id=%s", (rule_id,))
+            if cur.rowcount == 0:
+                abort(404, description="rule not found")
+            cn.commit()
+        return jsonify({"deleted_id": rule_id})
+
+    # ---------- Evaluación manual (genera eventos) ----------
+
+    @app.route("/v1/alerts/evaluate", methods=["POST"])
+    def evaluate_alerts_endpoint():
+        """
+        Ejecuta la evaluación de TODAS las reglas habilitadas (o una rule_id si viene en el body).
+        Retorna cuántos eventos nuevos se crearon.
+        """
+        data = request.get_json(force=True, silent=True) or {}
+        rid = data.get("rule_id")
+        if rid is not None:
+          try: rid = int(rid)
+          except: abort(400, description="rule_id must be integer")
+        created = evaluate_rules(rule_id=rid)
+        return jsonify({"events_created": created})
+
+    # ---------- Listado de eventos ----------
+
+    @app.route("/v1/alerts/events", methods=["GET"])
+    def list_events():
+        limit, offset =  parse_limit_offset()
+        rid = request.args.get("rule_id")
+        sid = request.args.get("station_id")
+        start = request.args.get("start")
+        end = request.args.get("end")
+
+        where = []
+        params: list = []
+
+        if rid:
+            try: rid = int(rid)
+            except: abort(400, description="rule_id must be integer")
+            where.append("e.rule_id=%s"); params.append(rid)
+
+        if sid:
+            try: sid = int(sid)
+            except: abort(400, description="station_id must be integer")
+            where.append("e.station_id=%s"); params.append(sid)
+
+        # parse fechas (ISO) a local naive
+        def parse_dt(x):
+            if not x: return None
+            try:
+                dt = datetime.fromisoformat(x.replace("Z","+00:00"))
+                local = dt.astimezone(ZoneInfo(DEFAULT_TZ)).replace(tzinfo=None)
+                return local.strftime("%Y-%m-%d %H:%M:%S")
+            except:
+                return None
+
+        p_start = parse_dt(start); p_end = parse_dt(end)
+        if p_start: where.append("e.ts >= %s"); params.append(p_start)
+        if p_end:   where.append("e.ts <= %s"); params.append(p_end)
+
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+        sql = f"""
+          SELECT e.id, e.rule_id, r.name AS rule_name, e.station_id, s.name AS station_name,
+                 e.ts, e.pollutant, e.value, e.operator, e.threshold, e.created_at
+          FROM alert_events e
+          JOIN alert_rules r ON r.id=e.rule_id
+          JOIN stations s ON s.id=e.station_id
+          {where_sql}
+          ORDER BY e.ts DESC
+          LIMIT %s OFFSET %s
+        """
+
+        params += [limit, offset]
+        with POOL.get_connection() as cn, cn.cursor(dictionary=True) as cur:
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
+        return jsonify({"items": rows, "limit": limit, "offset": offset})
+
     # ---------------------------
     # Routes
     # ---------------------------

@@ -1161,6 +1161,25 @@ function registerForms() {
     }).catch(() => {});
   });
 
+  $('#evaluate-rules-form').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const id = parseNumberValue($('#evaluate-rule-id').value);
+    const body = Number.isInteger(id) && id > 0 ? { rule_id: id } : {};
+    apiRequest('v1/alerts/evaluate', {
+      method: 'POST',
+      body,
+      resultEl: $('#alerts-result')
+    }).then((data) => {
+      showResult($('#alerts-result'), data);
+      if (data && typeof data === 'object' && 'events_created' in data) {
+        const count = Number(data.events_created) || 0;
+        const suffix = count === 1 ? 'evento nuevo.' : `${count} eventos nuevos.`;
+        setStatus(`Evaluación completada: ${suffix}`, count ? 'success' : 'info');
+      }
+      $('#evaluate-rules-form').reset();
+    }).catch(() => {});
+  });
+
   $('#update-rule-form').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const id = parseNumberValue($('#update-rule-id').value);

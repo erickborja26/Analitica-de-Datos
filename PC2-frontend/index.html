@@ -213,6 +213,15 @@
         </form>
       </details>
       <details>
+        <summary>Evaluar reglas manualmente</summary>
+        <form id="evaluate-rules-form" class="form-row">
+          <input type="number" min="1" id="evaluate-rule-id" placeholder="rule_id (opcional)" />
+          <button type="submit">Ejecutar POST /v1/alerts/evaluate</button>
+        </form>
+        <p class="section-hint">Ejecuta la evaluación de alertas forzando el cálculo inmediato. Si proporcionas <code>rule_id</code>,
+          solo se evaluará esa regla.</p>
+      </details>
+      <details>
         <summary>Actualizar / eliminar regla</summary>
         <form id="update-rule-form" class="form-grid">
           <label>ID regla<input type="number" min="1" id="update-rule-id" required /></label>

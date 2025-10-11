@@ -1,7 +1,7 @@
 # PC2/app.py
 from __future__ import annotations
 import os, csv, io
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -74,11 +74,13 @@ def create_app() -> Flask:
         except Exception:
             return ZoneInfo(DEFAULT_TZ)
 
-    def to_iso(dt: datetime, tz: ZoneInfo) -> str:
+    def to_iso(dt: datetime | date, tz: ZoneInfo) -> str:
         """
         Suponemos que en DB ts está en hora local Lima (naive).
         Lo tratamos como 'DEFAULT_TZ' y convertimos a la tz destino.
         """
+        if isinstance(dt, date) and not isinstance(dt, datetime):
+            dt = datetime.combine(dt, datetime.min.time())
         if dt.tzinfo is None:
             src = ZoneInfo(DEFAULT_TZ)
             dt = dt.replace(tzinfo=src)
@@ -252,12 +254,14 @@ def create_app() -> Flask:
         with POOL.get_connection() as cn, cn.cursor(dictionary=True) as cur:
             cur.execute("""
                 SELECT r.id, r.name, r.station_id, s.name AS station_name,
-                       r.pollutant, r.operator, r.threshold, r.time_window AS window, r.enabled, r.created_at
+                       r.pollutant, r.operator, r.threshold, r.time_window, r.enabled, r.created_at
                 FROM alert_rules r
                 LEFT JOIN stations s ON s.id=r.station_id
                 ORDER BY r.created_at DESC
             """)
             rules = cur.fetchall()
+            for rule in rules:
+                rule["window"] = rule.pop("time_window")
         return jsonify({"items": rules})
 
     @app.route("/v1/alerts/rules", methods=["POST"])

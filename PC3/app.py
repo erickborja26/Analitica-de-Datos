@@ -33,7 +33,7 @@ df_metrics, mapa_estaciones = cargar_datos_csv()
 dict_modelos = cargar_diccionario_modelos()
 
 st.title("☁️ Sistema de Predicción de Calidad de Aire")
-st.markdown("Plataforma de Estimación Multivariante usando Ensemble Learning")
+st.markdown("Plataforma de Estimación de Contaminantes Atmosféricos en Lima usando Modelos Ensemble Learning y Random Forests")
 
 tab1, tab2 = st.tabs(["📊 Comparativa de Rendimiento", "🤖 Simulador Interactivo"])
 

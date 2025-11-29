@@ -148,11 +148,15 @@ tab1, tab2, tab3, tab4 = st.tabs(TAB_LABELS)
 # ---------------------------------------------------------------------------
 with tab1:
     if df_metrics is not None:
+        contaminantes_tab1 = ["PM 2.5", "PM 10", "SO2", "NO2", "O3", "CO"]
+        cont_tab1 = st.selectbox("Contaminante a evaluar", contaminantes_tab1, key="cont_tab1")
+
         col1, col2 = st.columns([1, 2])
         with col1:
             st.subheader("Ranking de Modelos")
             df_sorted = df_metrics.sort_values("R2", ascending=False)
-            st.dataframe(df_sorted.style.highlight_max(subset=["R2"]), use_container_width=True)
+            df_sorted = df_sorted.assign(Contaminante=cont_tab1)
+            st.dataframe(df_sorted[["Contaminante", "Modelo", "R2", "RMSE"]].style.highlight_max(subset=["R2"]), use_container_width=True)
             ganador = df_sorted.iloc[0]
             st.success(f"Mejor Modelo Global: **{ganador['Modelo']}**")
         with col2:
@@ -164,6 +168,29 @@ with tab1:
             ax.set_xlim(0, 1.0)
             ax.grid(axis="x", linestyle="--", alpha=0.5)
             st.pyplot(fig)
+
+        st.markdown("---")
+        st.subheader("Vista ampliada de métricas")
+        metrica_sel = st.selectbox("Métrica a graficar", ["RMSE", "R2"], key="metrica_tab1")
+        df_plot = df_sorted if metrica_sel == "R2" else df_sorted.sort_values("RMSE")
+
+        col3, col4 = st.columns(2)
+        with col3:
+            fig2, ax2 = plt.subplots(figsize=(6, 3.5))
+            ax2.bar(df_plot["Modelo"], df_plot[metrica_sel], color="#ff7f0e")
+            ax2.set_ylabel(metrica_sel)
+            ax2.set_title(f"{metrica_sel} por modelo")
+            ax2.grid(axis="y", linestyle="--", alpha=0.4)
+            plt.xticks(rotation=45, ha="right")
+            st.pyplot(fig2)
+        with col4:
+            fig3, ax3 = plt.subplots(figsize=(6, 3.5))
+            ax3.scatter(df_sorted["RMSE"], df_sorted["R2"], color="#17becf")
+            ax3.set_xlabel("RMSE")
+            ax3.set_ylabel("R2")
+            ax3.set_title("Relación RMSE vs R2")
+            ax3.grid(True, linestyle="--", alpha=0.4)
+            st.pyplot(fig3)
     else:
         st.error("No se encontraron metricas. Ejecuta 'entrenamiento_modelos.py' primero.")
 
@@ -209,6 +236,7 @@ with tab2:
                 st.caption(f"Perfil de contaminacion estimado para {estacion_txt} a las {hora}:00")
                 chart_data = pd.DataFrame({"Concentracion": pred}, index=targets)
                 st.bar_chart(chart_data)
+                st.line_chart(chart_data)
             except Exception as e:
                 st.error(f"Error tecnico: {e}")
                 st.info("Intenta volver a entrenar los modelos si cambiaste la estructura de datos.")
@@ -229,6 +257,25 @@ def render_metricas(df_sel):
         ax.set_xlim(df_sel["r2"].min() - 0.05, 1.0)
         ax.grid(axis="x", linestyle="--", alpha=0.5)
         st.pyplot(fig)
+
+    st.markdown("#### Otras vistas de métricas")
+    col_c, col_d = st.columns(2)
+    with col_c:
+        fig_rmse, ax_rmse = plt.subplots(figsize=(6, 3.5))
+        ax_rmse.bar(df_sel["Modelo"], df_sel["rmse"], color="#ff7f0e")
+        ax_rmse.set_ylabel("RMSE")
+        ax_rmse.set_title("RMSE por modelo")
+        ax_rmse.grid(axis="y", linestyle="--", alpha=0.4)
+        plt.xticks(rotation=45, ha="right")
+        st.pyplot(fig_rmse)
+    with col_d:
+        fig_mae, ax_mae = plt.subplots(figsize=(6, 3.5))
+        ax_mae.scatter(df_sel["rmse"], df_sel["mae"], color="#2ca02c")
+        ax_mae.set_xlabel("RMSE")
+        ax_mae.set_ylabel("MAE")
+        ax_mae.set_title("MAE vs RMSE")
+        ax_mae.grid(True, linestyle="--", alpha=0.4)
+        st.pyplot(fig_mae)
 
 
 def render_simulador_global(modelos_dict, plantilla, estaciones_dummy, boton_key):
@@ -264,6 +311,7 @@ def render_simulador_global(modelos_dict, plantilla, estaciones_dummy, boton_key
                     col.metric(name, f"{val:.2f}", "ug/m3")
                 chart_df = pd.DataFrame({"Concentracion": resultados.values()}, index=resultados.keys())
                 st.bar_chart(chart_df)
+                st.line_chart(chart_df)
             else:
                 st.warning("No se encontraron modelos para el algoritmo seleccionado.")
         except Exception as e:

@@ -8,6 +8,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import BaggingRegressor, RandomForestRegressor, ExtraTreesRegressor
 from sklearn.neighbors import KNeighborsRegressor
+from sklearn.multioutput import MultiOutputRegressor
 
 # --- CONFIGURACIÓN DE RUTAS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -15,7 +16,7 @@ RUTA_DATOS = os.path.join(BASE_DIR, '..', 'PC1', 'senamhi_detalle_limpio.csv')
 RUTA_MODELOS = os.path.join(BASE_DIR, 'models')
 os.makedirs(RUTA_MODELOS, exist_ok=True)
 
-print("--- INICIO DEL ENTRENAMIENTO (CON MAPEO DE ESTACIONES) ---")
+print("--- INICIO DEL ENTRENAMIENTO (MODO: TODOS LOS MODELOS DISPONIBLES) ---")
 
 # 1. CARGA DE DATOS
 if os.path.exists(RUTA_DATOS):
@@ -41,28 +42,23 @@ if 'Fecha' in df.columns:
     df['Mes'] = df['Fecha_Dt'].dt.month
     df['Dia_Semana'] = df['Fecha_Dt'].dt.dayofweek
 
-# --- AQUÍ ESTÁ EL CAMBIO CLAVE: GUARDAR EL MAPEO DE ESTACIONES ---
+# Mapeo de Estaciones
 if 'Estacion' in df.columns:
-    # pd.factorize devuelve (codigos, unicos)
     codigos, nombres_unicos = pd.factorize(df['Estacion'])
     df['Estacion_Code'] = codigos
-    
-    # Creamos un diccionario { "Nombre": Codigo }
     mapa_estaciones = {nombre: codigo for codigo, nombre in enumerate(nombres_unicos)}
-    
-    # Guardamos este mapa para que la App lo use
     joblib.dump(mapa_estaciones, os.path.join(RUTA_MODELOS, 'mapa_estaciones.pkl'))
-    print(f"[INFO] Se encontraron {len(nombres_unicos)} estaciones. Mapa guardado.")
-else:
-    print("[ERROR] No se encontró la columna 'Estacion'.")
+    print(f"[INFO] Mapa de estaciones guardado.")
 
+# --- FEATURES  ---
 features = ['Hora_Num', 'Mes', 'Dia_Semana', 'Estacion_Code']
 
-# Limpieza y División (Igual que antes)
+# Limpieza
 df_clean = df.dropna(subset=TARGETS + features)
 X = df_clean[features]
 y = df_clean[TARGETS]
 
+# Imputación
 imputer = SimpleImputer(strategy='most_frequent')
 X_imputed = imputer.fit_transform(X)
 X_train, X_test, y_train, y_test = train_test_split(X_imputed, y, test_size=0.2, random_state=42)
@@ -81,27 +77,28 @@ modelos = {
     "10. RF FeatureSel": RandomForestRegressor(n_estimators=100, max_features='log2', n_jobs=-1, random_state=42)
 }
 
-# 4. ENTRENAMIENTO
+# 4. ENTRENAMIENTO Y GUARDADO DE TODOS
 resultados = []
-mejor_r2 = -np.inf
-mejor_modelo_obj = None
-mejor_nombre = ""
+modelos_entrenados = {} # Diccionario para guardar los objetos reales
 
-print(f"[INFO] Entrenando modelos...")
+print(f"[INFO] Entrenando 10 modelos...")
 for nombre, modelo in modelos.items():
-    modelo.fit(X_train, y_train)
+    modelo.fit(X_train, y_train) # Entrena
+    modelos_entrenados[nombre] = modelo # Guarda el objeto entrenado en el dict
+    
     score = modelo.score(X_test, y_test)
     rmse = np.sqrt(mean_squared_error(y_test, modelo.predict(X_test)))
     resultados.append({"Modelo": nombre, "R2": score, "RMSE": rmse})
-    
-    if score > mejor_r2:
-        mejor_r2 = score
-        mejor_modelo_obj = modelo
-        mejor_nombre = nombre
+    print(f"   > {nombre} finalizado.")
 
 # 5. EXPORTAR
+# Guardamos métricas
 pd.DataFrame(resultados).to_csv(os.path.join(RUTA_MODELOS, 'metricas_integrante_1.csv'), index=False)
-joblib.dump(mejor_modelo_obj, os.path.join(RUTA_MODELOS, 'mejor_modelo_p1.pkl'))
+
+# Guardamos TODOS los modelos en un solo archivo (Diccionario serializado)
+path_pkl = os.path.join(RUTA_MODELOS, 'todos_modelos_p1.pkl')
+joblib.dump(modelos_entrenados, path_pkl)
 
 print("-" * 50)
-print(f"Listo. Mejor modelo: {mejor_nombre} (R2: {mejor_r2:.4f})")
+print(f"Entrenamiento finalizado.")
+print(f"Se han guardado los 10 modelos en: {path_pkl}")

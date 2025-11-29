@@ -21,7 +21,7 @@ RUTA_METRICAS_GLOBAL_EXTRA = os.path.join(MODELS_DIR, "metricas_globales_extra.c
 RUTA_CALIDAD_AIRE = os.path.join(BASE_DIR, "calidad_aire.csv")
 
 # ---------------------------------------------------------------------------
-# Carga de datos
+# Carga de datos basicos
 # ---------------------------------------------------------------------------
 @st.cache_data
 def cargar_datos_csv():
@@ -107,6 +107,17 @@ def cargar_plantilla_global():
     }
 
 
+@st.cache_data
+def cargar_dataset_global():
+    if not os.path.exists(RUTA_CALIDAD_AIRE):
+        return None
+    try:
+        from modelo_global import cargar_y_preparar
+    except Exception:
+        return None
+    return cargar_y_preparar(Path(RUTA_CALIDAD_AIRE))
+
+
 def construir_vector_global(hora, mes, dia_num, estacion_txt, plantilla):
     fila = plantilla["median_features"].copy()
     fila.loc["hour"] = hora
@@ -131,120 +142,21 @@ df_global_metrics_extra = cargar_metricas_globales(RUTA_METRICAS_GLOBAL_EXTRA)
 dict_modelos_globales = cargar_modelos_globales(es_extra=False)
 dict_modelos_globales_extra = cargar_modelos_globales(es_extra=True)
 plantilla_global = cargar_plantilla_global()
+df_global_full = cargar_dataset_global()
 
-st.title("☁️ Sistema de Prediccion de Calidad de Aire")
+st.title("Sistema de Prediccion de Calidad de Aire")
 st.markdown("Plataforma de estimacion de contaminantes atmosfericos en Lima usando modelos ensemble learning y random forests")
 
 TAB_LABELS = [
-    "📊 Comparativa de Rendimiento",
-    "🤖 Simulador Interactivo",
-    "📊Cap. 7: Ensemble Global",
-    "📊 Modelos Extra",
+    "Comparativa de Rendimiento",
+    "Simulador Interactivo",
+    "Cap. 7: Ensemble Global",
+    "Cap. 7: Ensemble Global Extra",
 ]
 tab1, tab2, tab3, tab4 = st.tabs(TAB_LABELS)
 
 # ---------------------------------------------------------------------------
-# PESTANA 1: RESULTADOS
-# ---------------------------------------------------------------------------
-with tab1:
-    if df_metrics is not None:
-        contaminantes_tab1 = ["PM 2.5", "PM 10", "SO2", "NO2", "O3", "CO"]
-        cont_tab1 = st.selectbox("Contaminante a evaluar", contaminantes_tab1, key="cont_tab1")
-
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.subheader("Ranking de Modelos")
-            df_sorted = df_metrics.sort_values("R2", ascending=False)
-            df_sorted = df_sorted.assign(Contaminante=cont_tab1)
-            st.dataframe(df_sorted[["Contaminante", "Modelo", "R2", "RMSE"]].style.highlight_max(subset=["R2"]), use_container_width=True)
-            ganador = df_sorted.iloc[0]
-            st.success(f"Mejor Modelo Global: **{ganador['Modelo']}**")
-        with col2:
-            st.subheader("Metrica R2 (Precision)")
-            fig, ax = plt.subplots(figsize=(8, 4))
-            colors = ["#2ca02c" if x == ganador["Modelo"] else "#4c72b0" for x in df_sorted["Modelo"]]
-            ax.barh(df_sorted["Modelo"], df_sorted["R2"], color=colors)
-            ax.set_xlabel("R2 Score (1.0 = Perfecto)")
-            ax.set_xlim(0, 1.0)
-            ax.grid(axis="x", linestyle="--", alpha=0.5)
-            st.pyplot(fig)
-
-        st.markdown("---")
-        st.subheader("Vista ampliada de métricas")
-        metrica_sel = st.selectbox("Métrica a graficar", ["RMSE", "R2"], key="metrica_tab1")
-        df_plot = df_sorted if metrica_sel == "R2" else df_sorted.sort_values("RMSE")
-
-        col3, col4 = st.columns(2)
-        with col3:
-            fig2, ax2 = plt.subplots(figsize=(6, 3.5))
-            ax2.bar(df_plot["Modelo"], df_plot[metrica_sel], color="#ff7f0e")
-            ax2.set_ylabel(metrica_sel)
-            ax2.set_title(f"{metrica_sel} por modelo")
-            ax2.grid(axis="y", linestyle="--", alpha=0.4)
-            plt.xticks(rotation=45, ha="right")
-            st.pyplot(fig2)
-        with col4:
-            fig3, ax3 = plt.subplots(figsize=(6, 3.5))
-            ax3.scatter(df_sorted["RMSE"], df_sorted["R2"], color="#17becf")
-            ax3.set_xlabel("RMSE")
-            ax3.set_ylabel("R2")
-            ax3.set_title("Relación RMSE vs R2")
-            ax3.grid(True, linestyle="--", alpha=0.4)
-            st.pyplot(fig3)
-    else:
-        st.error("No se encontraron metricas. Ejecuta 'entrenamiento_modelos.py' primero.")
-
-# ---------------------------------------------------------------------------
-# PESTANA 2: SIMULADOR MULTI-OUTPUT
-# ---------------------------------------------------------------------------
-with tab2:
-    if dict_modelos and mapa_estaciones:
-        st.markdown("### ⚙️ Configuracion de la Simulacion")
-        lista_modelos = list(dict_modelos.keys())
-        idx_default = 0
-        if df_metrics is not None:
-            mejor_nombre = df_metrics.sort_values("R2", ascending=False).iloc[0]["Modelo"]
-            if mejor_nombre in lista_modelos:
-                idx_default = lista_modelos.index(mejor_nombre)
-        modelo_seleccionado_nombre = st.selectbox("Seleccionar Algoritmo Predictivo:", lista_modelos, index=idx_default)
-        modelo_activo = dict_modelos[modelo_seleccionado_nombre]
-
-        st.markdown("---")
-        c1, c2, c3, c4 = st.columns(4)
-        dias_txt = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
-        with c1:
-            hora = st.slider("Hora del Dia (0-23h)", 0, 23, 12)
-        with c2:
-            mes = st.selectbox("Mes del Ano", range(1, 13), index=9, format_func=lambda x: f"Mes {x}")
-        with c3:
-            dia_txt = st.selectbox("Dia de la Semana", dias_txt)
-            dia_num = dias_txt.index(dia_txt)
-        with c4:
-            nombres_estaciones = list(mapa_estaciones.keys())
-            estacion_txt = st.selectbox("Estacion de Monitoreo", nombres_estaciones)
-            estacion_code = mapa_estaciones[estacion_txt]
-
-        if st.button("Ejecutar Prediccion", type="primary"):
-            entrada = np.array([[hora, mes, dia_num, estacion_code]])
-            try:
-                pred = modelo_activo.predict(entrada)[0]
-                targets = ["PM 2.5", "PM 10", "SO2", "NO2", "O3", "CO"]
-                st.subheader(f"Resultados con: {modelo_seleccionado_nombre}")
-                cols = st.columns(6)
-                for col, val, name in zip(cols, pred, targets):
-                    col.metric(name, f"{val:.2f}", "ug/m3")
-                st.caption(f"Perfil de contaminacion estimado para {estacion_txt} a las {hora}:00")
-                chart_data = pd.DataFrame({"Concentracion": pred}, index=targets)
-                st.bar_chart(chart_data)
-                st.line_chart(chart_data)
-            except Exception as e:
-                st.error(f"Error tecnico: {e}")
-                st.info("Intenta volver a entrenar los modelos si cambiaste la estructura de datos.")
-    else:
-        st.warning("⚠️ Faltan archivos del sistema. Ejecuta 'entrenamiento_modelos.py' para generar los modelos.")
-
-# ---------------------------------------------------------------------------
-# Helpers de UI para tabs globales
+# Helpers de UI
 # ---------------------------------------------------------------------------
 def render_metricas(df_sel):
     col_a, col_b = st.columns([1, 2])
@@ -258,7 +170,7 @@ def render_metricas(df_sel):
         ax.grid(axis="x", linestyle="--", alpha=0.5)
         st.pyplot(fig)
 
-    st.markdown("#### Otras vistas de métricas")
+    st.markdown("#### Otras vistas de metricas")
     col_c, col_d = st.columns(2)
     with col_c:
         fig_rmse, ax_rmse = plt.subplots(figsize=(6, 3.5))
@@ -276,6 +188,67 @@ def render_metricas(df_sel):
         ax_mae.set_title("MAE vs RMSE")
         ax_mae.grid(True, linestyle="--", alpha=0.4)
         st.pyplot(fig_mae)
+
+
+def render_real_vs_pred_multi(df_input, modelo, target_name):
+    required_cols = ["Hora_Num", "Mes", "Dia_Semana", "Estacion_Code", target_name]
+    missing = [c for c in required_cols if c not in df_input.columns]
+    if missing:
+        st.warning(f"Faltan columnas para la comparacion: {missing}")
+        return
+    X = df_input[["Hora_Num", "Mes", "Dia_Semana", "Estacion_Code"]]
+    y_true = df_input[target_name].to_numpy()
+    target_order = ["PM 2.5", "PM 10", "SO2", "NO2", "O3", "CO"]
+    try:
+        y_pred_all = modelo.predict(X)
+        y_pred = y_pred_all[:, target_order.index(target_name)]
+    except Exception as e:
+        st.error(f"No se pudo predecir con el modelo: {e}")
+        return
+    df_plot = pd.DataFrame({"Real": y_true, "Predicho": y_pred})
+    st.line_chart(df_plot)
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.scatter(y_true, y_pred, alpha=0.5, color="#9467bd")
+    lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
+    ax.plot(lims, lims, "r--", label="y=x")
+    ax.set_xlabel("Real")
+    ax.set_ylabel("Predicho")
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.4)
+    st.pyplot(fig)
+
+
+def render_real_vs_pred_global(modelos_dict, df_model, algoritmo_sel, target_sel, boton_key):
+    if df_model is None:
+        st.info("No hay dataset preparado para comparar (falta calidad_aire.csv).")
+        return
+    feature_cols = [c for c in df_model.columns if c not in ["Fecha", "Hora", "datetime"] and not c.endswith("_next_hour")]
+    if algoritmo_sel not in modelos_dict or target_sel not in modelos_dict[algoritmo_sel]:
+        st.warning("No se encontro el modelo seleccionado.")
+        return
+    modelo = modelos_dict[algoritmo_sel][target_sel]
+    df_sample = df_model.dropna(subset=feature_cols + [target_sel]).head(400)
+    if df_sample.empty:
+        st.info("No hay suficientes datos para comparar.")
+        return
+    X = df_sample[feature_cols]
+    y_true = df_sample[target_sel].to_numpy()
+    try:
+        y_pred = modelo.predict(X)
+    except Exception as e:
+        st.error(f"No se pudo predecir con el modelo: {e}")
+        return
+    df_plot = pd.DataFrame({"Real": y_true, "Predicho": y_pred})
+    st.line_chart(df_plot)
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.scatter(y_true, y_pred, alpha=0.5, color="#d62728")
+    lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
+    ax.plot(lims, lims, "k--", label="y=x")
+    ax.set_xlabel("Real")
+    ax.set_ylabel("Predicho")
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.4)
+    st.pyplot(fig)
 
 
 def render_simulador_global(modelos_dict, plantilla, estaciones_dummy, boton_key):
@@ -317,6 +290,124 @@ def render_simulador_global(modelos_dict, plantilla, estaciones_dummy, boton_key
         except Exception as e:
             st.error(f"Ocurrio un error al predecir: {e}")
             st.info("Si los modelos cambiaron, vuelve a ejecutar el script de entrenamiento correspondiente.")
+    return algoritmos_disp
+
+# ---------------------------------------------------------------------------
+# PESTANA 1: RESULTADOS
+# ---------------------------------------------------------------------------
+with tab1:
+    if df_metrics is not None:
+        contaminantes_tab1 = ["PM 2.5", "PM 10", "SO2", "NO2", "O3", "CO"]
+        cont_tab1 = st.selectbox("Contaminante a evaluar", contaminantes_tab1, key="cont_tab1")
+
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.subheader("Ranking de Modelos")
+            df_sorted = df_metrics.sort_values("R2", ascending=False)
+            df_sorted = df_sorted.assign(Contaminante=cont_tab1)
+            st.dataframe(df_sorted[["Contaminante", "Modelo", "R2", "RMSE"]].style.highlight_max(subset=["R2"]), use_container_width=True)
+            ganador = df_sorted.iloc[0]
+            st.success(f"Mejor Modelo Global: **{ganador['Modelo']}**")
+        with col2:
+            st.subheader("Metrica R2 (Precision)")
+            fig, ax = plt.subplots(figsize=(8, 4))
+            colors = ["#2ca02c" if x == ganador["Modelo"] else "#4c72b0" for x in df_sorted["Modelo"]]
+            ax.barh(df_sorted["Modelo"], df_sorted["R2"], color=colors)
+            ax.set_xlabel("R2 Score (1.0 = Perfecto)")
+            ax.set_xlim(0, 1.0)
+            ax.grid(axis="x", linestyle="--", alpha=0.5)
+            st.pyplot(fig)
+
+        st.markdown("---")
+        st.subheader("Vista ampliada de metricas")
+        metrica_sel = st.selectbox("Metrica a graficar", ["RMSE", "R2"], key="metrica_tab1")
+        df_plot = df_sorted if metrica_sel == "R2" else df_sorted.sort_values("RMSE")
+
+        col3, col4 = st.columns(2)
+        with col3:
+            fig2, ax2 = plt.subplots(figsize=(6, 3.5))
+            ax2.bar(df_plot["Modelo"], df_plot[metrica_sel], color="#ff7f0e")
+            ax2.set_ylabel(metrica_sel)
+            ax2.set_title(f"{metrica_sel} por modelo")
+            ax2.grid(axis="y", linestyle="--", alpha=0.4)
+            plt.xticks(rotation=45, ha="right")
+            st.pyplot(fig2)
+        with col4:
+            fig3, ax3 = plt.subplots(figsize=(6, 3.5))
+            ax3.scatter(df_sorted["RMSE"], df_sorted["R2"], color="#17becf")
+            ax3.set_xlabel("RMSE")
+            ax3.set_ylabel("R2")
+            ax3.set_title("Relacion RMSE vs R2")
+            ax3.grid(True, linestyle="--", alpha=0.4)
+            st.pyplot(fig3)
+
+        st.markdown("### Comparacion Real vs Predicho (requiere CSV)")
+        st.caption("Sube un CSV con columnas: Hora_Num, Mes, Dia_Semana, Estacion_Code y la columna del contaminante elegido.")
+        archivo_multi_tab1 = st.file_uploader("CSV de datos reales", type=["csv"], key="csv_multi_tab1")
+        if archivo_multi_tab1 is not None and dict_modelos:
+            df_real_tab1 = pd.read_csv(archivo_multi_tab1)
+            modelo_tab1 = st.selectbox("Modelo a usar", list(dict_modelos.keys()), key="modelo_tab1")
+            target_tab1 = st.selectbox("Contaminante a comparar", contaminantes_tab1, key="target_tab1")
+            render_real_vs_pred_multi(df_real_tab1, dict_modelos[modelo_tab1], target_tab1)
+    else:
+        st.error("No se encontraron metricas. Ejecuta 'entrenamiento_modelos.py' primero.")
+
+# ---------------------------------------------------------------------------
+# PESTANA 2: SIMULADOR MULTI-OUTPUT
+# ---------------------------------------------------------------------------
+with tab2:
+    if dict_modelos and mapa_estaciones:
+        st.markdown("### Configuracion de la Simulacion")
+        lista_modelos = list(dict_modelos.keys())
+        idx_default = 0
+        if df_metrics is not None:
+            mejor_nombre = df_metrics.sort_values("R2", ascending=False).iloc[0]["Modelo"]
+            if mejor_nombre in lista_modelos:
+                idx_default = lista_modelos.index(mejor_nombre)
+        modelo_seleccionado_nombre = st.selectbox("Seleccionar Algoritmo Predictivo:", lista_modelos, index=idx_default)
+        modelo_activo = dict_modelos[modelo_seleccionado_nombre]
+
+        st.markdown("---")
+        c1, c2, c3, c4 = st.columns(4)
+        dias_txt = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
+        with c1:
+            hora = st.slider("Hora del Dia (0-23h)", 0, 23, 12)
+        with c2:
+            mes = st.selectbox("Mes del Ano", range(1, 13), index=9, format_func=lambda x: f"Mes {x}")
+        with c3:
+            dia_txt = st.selectbox("Dia de la Semana", dias_txt)
+            dia_num = dias_txt.index(dia_txt)
+        with c4:
+            nombres_estaciones = list(mapa_estaciones.keys())
+            estacion_txt = st.selectbox("Estacion de Monitoreo", nombres_estaciones)
+            estacion_code = mapa_estaciones[estacion_txt]
+
+        if st.button("Ejecutar Prediccion", type="primary"):
+            entrada = np.array([[hora, mes, dia_num, estacion_code]])
+            try:
+                pred = modelo_activo.predict(entrada)[0]
+                targets = ["PM 2.5", "PM 10", "SO2", "NO2", "O3", "CO"]
+                st.subheader(f"Resultados con: {modelo_seleccionado_nombre}")
+                cols = st.columns(6)
+                for col, val, name in zip(cols, pred, targets):
+                    col.metric(name, f"{val:.2f}", "ug/m3")
+                st.caption(f"Perfil de contaminacion estimado para {estacion_txt} a las {hora}:00")
+                chart_data = pd.DataFrame({"Concentracion": pred}, index=targets)
+                st.bar_chart(chart_data)
+                st.line_chart(chart_data)
+            except Exception as e:
+                st.error(f"Error tecnico: {e}")
+                st.info("Intenta volver a entrenar los modelos si cambiaste la estructura de datos.")
+
+        st.markdown("### Comparacion Real vs Predicho (requiere CSV)")
+        st.caption("Sube un CSV con columnas: Hora_Num, Mes, Dia_Semana, Estacion_Code y la columna del contaminante elegido.")
+        archivo_multi = st.file_uploader("CSV de datos reales", type=["csv"], key="csv_multi")
+        if archivo_multi is not None:
+            df_real = pd.read_csv(archivo_multi)
+            target_sel_multi = st.selectbox("Contaminante a comparar", ["PM 2.5", "PM 10", "SO2", "NO2", "O3", "CO"], key="target_multi")
+            render_real_vs_pred_multi(df_real, modelo_activo, target_sel_multi)
+    else:
+        st.warning("Faltan archivos del sistema. Ejecuta 'entrenamiento_modelos.py' para generar los modelos.")
 
 # ---------------------------------------------------------------------------
 # PESTANA 3: MODELOS GLOBALES BASE
@@ -337,7 +428,19 @@ with tab3:
         estaciones_dummy = [c.replace("Estacion_", "") for c in plantilla_global["station_cols"]]
         if not estaciones_dummy and mapa_estaciones:
             estaciones_dummy = list(mapa_estaciones.keys())
-        render_simulador_global(dict_modelos_globales, plantilla_global, estaciones_dummy, boton_key="pred_global_base")
+        algoritmos_disp_base = render_simulador_global(dict_modelos_globales, plantilla_global, estaciones_dummy, boton_key="pred_global_base")
+
+        st.markdown("### Comparacion Real vs Predicho (base)")
+        if df_global_full is not None and algoritmos_disp_base:
+            alg_base_sel = st.selectbox("Modelo", algoritmos_disp_base, key="alg_base_cmp")
+            targets_disp_base = sorted(dict_modelos_globales.get(alg_base_sel, {}).keys())
+            if targets_disp_base:
+                target_base_sel = st.selectbox("Target", targets_disp_base, key="target_base_cmp")
+                render_real_vs_pred_global(dict_modelos_globales, df_global_full, alg_base_sel, target_base_sel, boton_key="base_cmp")
+            else:
+                st.info("No hay targets disponibles para ese modelo.")
+        else:
+            st.info("No se pudo cargar el dataset global para comparar.")
     else:
         st.warning("No hay modelos globales disponibles. Ejecuta 'modelo_global.py' para entrenarlos y guardarlos en /models.")
 
@@ -360,6 +463,18 @@ with tab4:
         estaciones_dummy_extra = [c.replace("Estacion_", "") for c in plantilla_global["station_cols"]]
         if not estaciones_dummy_extra and mapa_estaciones:
             estaciones_dummy_extra = list(mapa_estaciones.keys())
-        render_simulador_global(dict_modelos_globales_extra, plantilla_global, estaciones_dummy_extra, boton_key="pred_global_extra")
+        algoritmos_disp_extra = render_simulador_global(dict_modelos_globales_extra, plantilla_global, estaciones_dummy_extra, boton_key="pred_global_extra")
+
+        st.markdown("### Comparacion Real vs Predicho (extra)")
+        if df_global_full is not None and algoritmos_disp_extra:
+            alg_extra_sel = st.selectbox("Modelo", algoritmos_disp_extra, key="alg_extra_cmp")
+            targets_disp_extra = sorted(dict_modelos_globales_extra.get(alg_extra_sel, {}).keys())
+            if targets_disp_extra:
+                target_extra_sel = st.selectbox("Target", targets_disp_extra, key="target_extra_cmp")
+                render_real_vs_pred_global(dict_modelos_globales_extra, df_global_full, alg_extra_sel, target_extra_sel, boton_key="extra_cmp")
+            else:
+                st.info("No hay targets disponibles para ese modelo.")
+        else:
+            st.info("No se pudo cargar el dataset global para comparar.")
     else:
         st.warning("No hay modelos globales extra disponibles. Ejecuta 'modelos_globales_extra.py' para entrenarlos y guardarlos en /models.")

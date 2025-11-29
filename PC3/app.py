@@ -236,9 +236,9 @@ def render_simulador_global(modelos_dict, plantilla, estaciones_dummy, boton_key
     dias_txt = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
     c1, c2 = st.columns(2)
     with c1:
-        algoritmo_sel = st.selectbox("Modelo global", algoritmos_disp)
+        algoritmo_sel = st.selectbox("Modelo global", algoritmos_disp, key=f"alg_{boton_key}")
     with c2:
-        estacion_global = st.selectbox("Estacion", estaciones_dummy)
+        estacion_global = st.selectbox("Estacion", estaciones_dummy, key=f"est_{boton_key}")
 
     c3, c4, c5 = st.columns(3)
     with c3:
